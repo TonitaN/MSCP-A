@@ -1,0 +1,274 @@
+/*Модуль разрешения квадратичных уравнений в словах.
+
+Экспортируемые функции:
+DecideQWESolvability --- разрешить вопрос о существовании корней квадратичного уравнения.
+(AreEqual ((s.Log1)([MultiSet])(e.LHS))((s.Log2)([MultiSet])(e.RHS))) => s.Log
+
+*/
+
+/*из модуля drive.ref*/
+$EXTERN SplitEquationLeft;
+/*из модуля basics.ref*/
+$EXTERN MyZero, TermContradiction;
+/*
+$ENTRY Go {=
+	<Prout 
+		<SolveQuadEquation ('b'(weval e x)'baa') to ('bb'(weval e z))>
+	
+	>;}
+*/
+
+/*Функция, разрешающая вопрос о наличии у квадратного уравнения корней.
+[WevalEquality] => s.Log
+*/
+$ENTRY DecideQWESolvability {
+(AreEqual ((s.Log1)(e.Pow1)(e.LHS))((s.Log2)(e.Pow2)(e.RHS))) =
+	<IfASolutionExists <SolveQuadEquation (e.LHS) to (e.RHS)>>;
+}
+
+IfASolutionExists {
+	(FinishedNode t.Node (True)) = 'T';
+	(FinishedNode t.Node (Zero)) = 'F';
+	(FinishedNode t.Node (Node Loop)) = 'F';
+	(FinishedNode t.Node (e.Clash) (FinishedNode e.Child1) (FinishedNode e.Child2)(FinishedNode e.Child3)) = 
+		<LogOr <LogOr <IfASolutionExists (FinishedNode e.Child1)><IfASolutionExists (FinishedNode e.Child2)>> <IfASolutionExists (FinishedNode e.Child3)>>;
+	(FinishedNode t.Node (e.Clash) (FinishedNode e.Child1) (FinishedNode e.Child2)) = 
+		<LogOr <IfASolutionExists (FinishedNode e.Child1)><IfASolutionExists (FinishedNode e.Child2)>>;
+
+}
+
+/*дизъюнкция на {'T','F'} !LAZY! {'T','N','F'}(3-значн Лукас)*/
+LogOr
+{
+	s.1'T'  = 'T';
+	'T's.1  = 'T';
+	s.1'N'  = 'N';
+	'N's.1  = 'N';
+	'FF' = 'F';
+}
+/*********************************************************
+КВАДРАТНЫЕ УРАВНЕНИЯ
+*********************************************************/
+
+/*Прогонка для квадратных уравнений*/
+ClashQuadEquation {
+/*0. Левая и правая части полностью сопоставились.*/
+	(t.Node  (() to ()))(e.Path) = (FinishedNode t.Node (True));
+	(t.Node  (((weval e t.Name)) to ()))(e.Path) = (FinishedNode t.Node (True));
+	(t.Node  (() to ((weval e t.Name))))(e.Path) = (FinishedNode t.Node (True));
+/*	(t.Node (((weval e t.Name) e.LHS) to ((weval e t.Name) e.RHS)))(e.Path) = 
+				<ClashQuadEquation (t.Node ((e.LHS) to (e.RHS)))(e.Path)>;*/
+/*1. Сопоставление двух переменных порождает расщепление на три варианта.*/
+	(t.Node (((weval e t.Name) e.LHS) to ((weval e t.Name2) e.RHS)))(e.Path) = 
+				(ProcessedNode t.Node (((weval e t.Name) e.LHS) to ((weval e t.Name2) e.RHS))
+				<ProcessNewNode (NewNode (assign (weval e t.Name) ((weval e t.Name2)(weval e t.Name))) 
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name) ((weval e t.Name2)(weval e t.Name)))
+						((weval e t.Name) e.LHS) to ((weval e t.Name2) e.RHS)
+					>)(e.Path)>
+				<ProcessNewNode (NewNode (assign (weval e t.Name2) ((weval e t.Name)(weval e t.Name2)))
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name2) ((weval e t.Name)(weval e t.Name2)))
+						((weval e t.Name) e.LHS) to ((weval e t.Name2) e.RHS)
+				>)(e.Path)>
+				<ProcessNewNode (NewNode (assign (weval e t.Name) ((weval e t.Name2))) 
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name) ((weval e t.Name2)))
+						((weval e t.Name) e.LHS) to ((weval e t.Name2) e.RHS)
+				>)(e.Path)>)				;
+/*2. Сопоставление переменной и терма порождает расщепление на два варианта: переменная пуста, переменная содержит терм.*/
+	(t.Node (((weval e t.Name) e.LHS) to (t.1 e.RHS)))(e.Path), 
+        <TermContradiction (weval e t.Name) t.1> : 'F' = 
+				(ProcessedNode t.Node (((weval e t.Name) e.LHS) to (t.1 e.RHS))
+				<ProcessNewNode (NewNode (assign (weval e t.Name) (t.1(weval e t.Name))) 
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name) (t.1(weval e t.Name)))
+						((weval e t.Name) e.LHS) to (t.1 e.RHS)
+				>)(e.Path)>
+				<ProcessNewNode (NewNode (assign (weval e t.Name) ()) 
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name) ())
+						((weval e t.Name) e.LHS) to (t.1 e.RHS)
+				>)(e.Path)>);
+	(t.Node ((t.1 e.LHS) to ((weval e t.Name) e.RHS)))(e.Path),
+        <TermContradiction (weval e t.Name) t.1> : 'F'        = 
+				(ProcessedNode t.Node ((t.1 e.LHS) to ((weval e t.Name) e.RHS))
+				<ProcessNewNode (NewNode (assign (weval e t.Name) (t.1(weval e t.Name))) 
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name) (t.1(weval e t.Name)))
+						(t.1 e.LHS) to ((weval e t.Name) e.RHS)
+				>)(e.Path)>
+				<ProcessNewNode (NewNode (assign (weval e t.Name) ()) 
+					<ProcessNewQWERestriction 
+						(assign (weval e t.Name) ())
+						(t.1 e.LHS) to ((weval e t.Name) e.RHS)
+				>)(e.Path)>);
+/*3. Два равных терма успешно сопоставляются.*/
+	(t.Node ((t.1 e.LHS) to (t.1 e.RHS)))(e.Path) = <ClashQuadEquation (t.Node ((e.LHS) to (e.RHS)))(e.Path)>;
+/*4. Во всех прочих случаях уравнение не имеет решений.*/
+	(t.Node ((e.LHS) to (e.RHS)))(e.Path) = (FinishedNode t.Node (Zero));
+}
+
+/*Обработка нового назначения на переменную --- подстановка его в правую и левую часть уравнения и удаление оттуда равных термов.
+(assign (weval e t.Name) t.Val)([Expr]) to ([Expr]) => (([Expr]) to ([Expr]))
+*/
+ProcessNewQWERestriction {
+	(assign t.Name t.Val)(e.LHS) to (e.RHS) =
+			(<DeleteEquals 
+				(<SubstituteInWE (assign t.Name t.Val)e.LHS>) 
+				to 
+				(<SubstituteInWE (assign t.Name t.Val)e.RHS>)
+			>);
+}
+
+ProcessNewNode {
+	(NewNode t.Name t.Clash)(e.Path) = <CheckNode4LoopBack ()(NewNode t.Name t.Clash)((t.Name t.Clash) e.Path)>;
+}
+
+/*удаление равных термов из двух выражений слева и справа
+([Expr]) to ([Expr]) => ([Expr]) to ([Expr])
+*/
+DeleteEquals {
+	(t.1 e.1) to (t.1 e.2) = <DeleteEquals (e.1) to (e.2)>;
+	(e.1 t.1) to (e.2 t.1) = <DeleteEquals (e.1) to (e.2)>;
+	(e.1) to (e.2) = (e.1) to (e.2);
+}
+
+/*(e.Path)(e.Tree) => (e.ProcessedNode)*/
+ReturnNode {
+	((t.Name t.Clash))(t.NodeData t.Name t.Clash e.Children)e.Siblings =
+		(ProcessedNode t.Name t.Clash e.Children);
+	( e.Path (t.Name t.Clash))(ProcessedNode t.Name t.Clash e.Children)e.Siblings =
+		<ReturnNode (e.Path) e.Children>;
+	( e.Path)(t.NodeData e.Data) e.Siblings =
+		<ReturnNode (e.Path) e.Siblings>;
+}
+
+/*(ProcessedNode t.Name e.Data)(e.Path)e.Tree => e.NewTree*/
+SubstituteLeaf {
+	(t.NodeInfo t.Name e.Data)((t.Name t.Clash))(t.NodeInfo2 t.Name e.Data2) e.Siblings = 
+		(t.NodeInfo t.Name e.Data) e.Siblings;
+		
+	t.Leaf (e.Path(t.Name t.Clash))(ProcessedNode t.Name t.Clash e.Children)e.Siblings =
+		(ProcessedNode t.Name t.Clash <SubstituteLeaf t.Leaf (e.Path) e.Children>) e.Siblings;
+		
+	t.Leaf (e.Path)(t.NodeInfo e.Data) e.Siblings =
+		(t.NodeInfo e.Data) <SubstituteLeaf t.Leaf (e.Path) e.Siblings>;
+}
+
+/*Проверка, является ли вершина финальной. Если не финальная, возвращаем незавершенный лист*/
+CheckNodeStatus {
+	(e.FinChildren)(t.NodeInfo t.Name t.Clash) = ()(FinishedNode t.Name t.Clash e.FinChildren);
+	(e.FinChildren)(t.NodeInfo t.Name t.Clash (FinishedNode e.Child)e.C) = 
+		<CheckNodeStatus (e.FinChildren (FinishedNode e.Child))(t.NodeInfo t.Name t.Clash e.C)>;
+	(e.FinChildren)(t.NodeInfo t.Name t.Clash (t.NotFinished e.Child)e.C) = 
+		(t.NotFinished e.Child)(ProcessedNode t.Name t.Clash e.FinChildren (t.NotFinished e.Child) e.C);		
+}
+
+
+FindActiveNode {
+	(e.Node)(e.Path)e.Tree = <FindActiveNodeAux <CheckNodeStatus ()(e.Node)>(e.Path)e.Tree>;
+}
+
+/*поиск "ближайшей" активной (нефинальной) вершины*/
+FindActiveNodeAux {
+	()(FinishedNode t.NodeName e.NodeData)((t.NodeName e.NodeClash)) e.Tree = 
+			(FinishedNode t.NodeName e.NodeData)((t.NodeName e.NodeClash))
+			<SubstituteLeaf 
+				(FinishedNode t.NodeName e.NodeData)
+				((t.NodeName e.NodeClash))
+				e.Tree
+			>;
+
+	()(FinishedNode t.NodeName e.NodeData)((t.NodeName e.NodeClash) t.ParentNode e.Path) e.Tree = 
+		<FindActiveNode 
+			<ReturnNode (t.ParentNode e.Path) <SubstituteLeaf 
+				(FinishedNode t.NodeName e.NodeData)
+				((t.NodeName e.NodeClash) t.ParentNode e.Path)
+				e.Tree
+			>>
+			(t.ParentNode e.Path) 
+			<SubstituteLeaf 
+				(FinishedNode t.NodeName e.NodeData)
+				((t.NodeName e.NodeClash) t.ParentNode e.Path)
+				e.Tree
+			>
+		>;
+	(t.NotFinished t.ChildName t.ClashChild e.Child)
+		(ProcessedNode e.Node)(e.Path)e.Tree = 
+			(t.NotFinished t.ChildName t.ClashChild e.Child)
+			((t.ChildName t.ClashChild)e.Path)
+			<SubstituteLeaf 
+				(ProcessedNode e.Node)
+				(e.Path)
+				e.Tree
+			>;
+}
+
+/*Проверка, является ли вершина повторной на пути*/
+CheckNode4LoopBack {
+	()(FinishedNode e.Data)(e.Path)= (FinishedNode e.Data);
+	()(e.Leaf)(t.Branch e.Path)= <CheckNode4LoopBack (t.Branch)(e.Leaf)(e.Path)>;
+	(e.Path)(e.Leaf)()= (e.Leaf);
+	(e.LowerPath)(t.Status t.NodeName t.NodeClash e.Other)((t.NodeName2 t.NodeClash) e.UpperPath)= 
+		(FinishedNode t.NodeName (Node Loop));
+	(e.LowerPath)(e.Leaf)(t.Branch e.UpperPath)= 
+		<CheckNode4LoopBack (e.LowerPath t.Branch)(e.Leaf)(e.UpperPath)>;
+}
+
+
+Unfold4QuadEquation {
+	(NewNode e.Node)(e.Path)e.Tree = <Unf4QEAux  
+					<CheckNode4LoopBack ()(NewNode e.Node)(e.Path)>
+					(e.Path)
+					e.Tree
+				>;
+	(e.Leaf)(e.Path)e.Tree = <Unf4QEAux <FindActiveNode 
+					<CheckNode4LoopBack ()(e.Leaf)(e.Path)>
+					(e.Path)
+					e.Tree
+				>>;
+}
+
+Unf4QEAux {
+	(FinishedNode t.NodeName e.NodeData)(e.Path)e.Tree = e.Tree;
+	(t.Status t.Name ((e.LHS) to (e.RHS)) e.Other)(e.Path)e.Tree = 
+		<Unfold4QuadEquation
+				<Check4Consistency t.Name ((e.LHS) to (e.RHS))(e.Path)
+						<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.LHS)((<MyZero> Const))()(e.RHS))>
+				>
+			(e.Path)e.Tree
+		>;
+}
+
+Check4Consistency {
+	t.Node (e.Clash)(e.Path)(e.Assignments)(e.Equations)('F')= (FinishedNode t.Node (Zero));
+/*	t.Node (e.Clash)(e.Path)(e.Assignments)((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('T')= 
+		<ClashQuadEquation (t.Node(<DeleteEquals (e.Proc1) to (e.Proc2)>))(e.Path)>;*/
+	t.Node (e.Clash)(e.Path)(e.Assignments)(e.Equations)(s.Log)= 
+		<ClashQuadEquation (t.Node(e.Clash))(e.Path)>;
+}
+
+SolveQuadEquation {
+	(e.LHS) to (e.RHS) = <Unfold4QuadEquation 
+					(NewNode Root ((e.LHS) to (e.RHS)))
+					((Root ((e.LHS) to (e.RHS))))
+					(NewNode Root ((e.LHS) to (e.RHS)))
+				>; 
+}
+
+/*подстановка в часть уравнения*/
+SubstituteInWE {
+	(e.Subst) = ;
+	(e.Subst) s.1 e.RightSide = s.1 <SubstituteInWE (e.Subst) e.RightSide>;
+	(e.Subst) ('*' e.RightSide) e.RS2 = 
+		('*' <SubstituteInWE (e.Subst) e.RightSide>) 
+		<SubstituteInWE (e.Subst) e.RS2>;
+	(e.Subst) (call e.functionname (args (arg e.arg1)))e.RS2 = 
+		(call e.functionname (args (arg <SubstituteInWE (e.Subst) e.arg1>))) 
+		<SubstituteInWE (e.Subst) e.RS2>;
+	(assign (e.WEValId) (e.Val))(e.WEValId) e.RS2 = 
+		e.Val <SubstituteInWE (assign (e.WEValId)(e.Val)) e.RS2>;
+	(e.Subst)t.1 e.RS2 = 
+		t.1 <SubstituteInWE (e.Subst) e.RS2>;
+}

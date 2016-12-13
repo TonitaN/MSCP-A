@@ -1,0 +1,950 @@
+/*Главный модуль обработки уравнений.
+Здесь проводится расщепление уравнений на простейшие и вызов специальных алгоритмов для работы с уравнениями ограниченных классов.
+
+[PRTCEquation] ::= (AreEqual ((s.Log)e.PRTCExpr)((s.Log)e.PRTCExpr))
+[WordEquation] ::= (AreEqual (([MultiSet]e.WevalExpr))(([MultiSet]e.WevalExpr)))
+
+PRTCExpr содержит параметры, вызовы функций, переменные шаблона.
+WevalExpr содержит только переменные weval.
+
+Экспортируемые функции:
+IfProcessible --- функция поиска уравнений, которые подвергались изменениям.
+([PRTCEquations]) => [PRTCEquation]([PRTCEquations])s.Log
+
+MergeParametrizations, PlaceTwoSidesInEquality, ParametrizeExpression --- функции превращения уравнения из PRTCEquation в WordEquation.
+Главная функция --- MergeParametrizations
+
+IterateProcessQWEs --- функция вызова обработки квадратичных уравнений.
+([WordEquation]^*)^* => ({[WordEquation]^*|Zero})^*
+
+IterateWESimpleTransforms --- простейшая обработка уравнений (расщеплением).
+([WordEquation]^*)^* => ({[WordEquation]^*|Zero})^*
+
+SplitEquationLefts --- запуск процедуры расщепления на уравнении, превращаемом в WordEquation.
+([WordEquation]*)([Assignment]*)((([MultiSet]) AreEqual (e.LHS)(e.RHS))*)
+	e.Config (s.Log) => (([WordEquation]*)([Assignment]*)e.Conf (s.Log))|Zero
+
+SplitEquationLeft --- процедура расщепления уравнения.
+(AreEqual (([MultiSet])(e.LHSPart)(e.LHSRest))(([MultiSet])(e.RHSPart)(e.RHSRest)))=>
+([Assignment]*)([WordEquation]*)(s.Log)
+
+*/
+
+/*из модуля basics.ref*/
+$EXTERN TermContradiction, MaxElementPowerMS, ReplaceMSEl, IfIncluded;
+$EXTERN IfASubMultiSet, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,SubtractEl,InsertInMultiSet,MergeSets,SymSubstMS;
+$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, FindTerm, RenewIndices, FreshIndex, CurrentIndex,MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
+/*из модуля DiofEqs.ref*/
+$EXTERN SolveLinearDE;
+/*из модуля WordEqsCases.ref*/
+$EXTERN DecideQWESolvability;
+
+$ENTRY IfProcessible
+{
+	(e.equations)  = ()(e.equations)'F';
+/*!Это единственная строчка в модуле, отсылающая к структурам конфигурации в прогонке!*/
+	(e.equations)(Desired e.Desired) = ()(e.equations)'F';
+
+	(e.preq)(AreEqual ((s.Log)e.Expr1)(('T')e.Expr2)) e.Equations = 
+			(AreEqual ((s.Log)e.Expr1)(('T')e.Expr2))(e.preq e.Equations) 'T'; 
+	(e.preq)(AreEqual (('T')e.Expr1)((s.Log)e.Expr2)) e.Equations = 
+			(AreEqual (('T')e.Expr1)((s.Log)e.Expr2)) (e.preq e.Equations)'T'; 
+	(e.preq)(AreEqual (('N')e.Expr1)(('N')e.Expr2)) e.Equations = 
+			(AreEqual (('N')e.Expr1)(('N')e.Expr2)) (e.preq e.Equations) 'T'; 
+	(e.preq)(AreEqual ((s.Log1)e.Expr1)((s.Log2)e.Expr2)) e.Equations = 
+			<IfProcessible (e.preq (AreEqual ((s.Log1)e.Expr1)((s.Log2)e.Expr2))) e.Equations>; 
+}
+
+/*Параметризация правой части переменными weval и соединение ее с левой в равенство*/
+$ENTRY MergeParametrizations
+{
+	(e.ParametrizedEqs)(e.ParValList)(e.Complexity)(e.ThisParameterList)(e.ParametrizedLHS)(e.RHS) =
+		<PlaceTwoSidesInEquality 
+			(e.ParametrizedEqs)(e.ParametrizedLHS)
+			<ParametrizeExpression (e.ParValList)(e.Complexity)(e.ThisParameterList)()e.RHS>
+		>;
+}
+
+/*Функция форматирования - записать новое равенство в список уже готовых*/
+$ENTRY PlaceTwoSidesInEquality
+{
+	(e.OtherEqualities)(e.LHS)(e.ParValList)(e.Complexity)(e.ThisParameterList)(e.RHS) =
+		(e.ParValList)(e.OtherEqualities ((e.Complexity) AreEqual (e.LHS)(e.RHS)));
+}
+
+
+/*параметризация выражения переменными рода weval вместо неопределённостей*/
+$ENTRY ParametrizeExpression
+{
+	(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized) = 
+		(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized);
+	(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized)s.x e.NP = 
+		<ParametrizeExpression (e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized s.x) e.NP>;
+	(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized)('*'e.NP1) e.NP2 = 
+		<ParametrizeOutBrackets (e.Parametrized)
+			(<ParametrizeExpression (e.OldParameterList)(e.Complexity)(e.ThisParameterList)() e.NP1>)
+			e.NP2
+		>;
+/*если переменная и так типа weval (т.е. представляет собой часть вызова) - оставляем как есть*/
+	(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized)(weval e.wvdata) e.NP = 
+		<ParametrizeExpression
+			(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized (weval e.wvdata)) e.NP>;		
+	(e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.Parametrized)t.ToParameter e.NP = 
+		<ParametrizeExpression
+			<WEComplexity
+				()
+				<AssignWEValName 
+					()(e.OldParameterList)(e.Complexity)(e.ThisParameterList) t.ToParameter
+				>
+				(e.Parametrized)
+			>
+			e.NP
+		>;		
+}
+
+/*назначение переменным частям имени рода weval*/
+AssignWEValName
+{
+/*Выделяем термовые и символьные переменные и параметры - они ограничены по длине и нужны для уравнений на длины*/
+	(e.ProcOld)()(e.Complexity)(e.ThisParameterList)(s.sort t t.Name) =	
+		(e.ProcOld (assign (weval t <FreshIndex 'wevalt_ind'>) ((s.sort t t.Name))))
+		(e.Complexity)(e.ThisParameterList)(weval t <CurrentIndex 'wevalt_ind'>);
+/*непонятно, нужны ли s-переменные здесь вообще.
+информация о них загромождает блок решения уравнений, а принципиально термы от s-переменных в этом блоке не отличаются*/
+	(e.ProcOld)()(e.Complexity)(e.ThisParameterList) (s.sort s t.Name) =	
+		(e.ProcOld (assign (weval s <FreshIndex 'wevals_ind'>) ((s.sort s t.Name))))
+		(e.Complexity)(e.ThisParameterList)(weval s <CurrentIndex 'wevals_ind'>);
+	(e.ProcOld)()(e.Complexity)(e.ThisParameterList) t.ToParameter =	
+		(e.ProcOld (assign (weval e <FreshIndex 'wevale_ind'>) (t.ToParameter)))
+		(e.Complexity)(e.ThisParameterList)(weval e <CurrentIndex 'wevale_ind'>);
+		
+	(e.ProcOld)((assign (weval e.Name) (t.ToParameter)) e.OldParameterList)(e.Complexity)(e.ThisParameterList) t.ToParameter =
+		(e.ProcOld (assign (weval e.Name) (t.ToParameter)) e.OldParameterList)(e.Complexity)(e.ThisParameterList)(weval e.Name);
+	
+	(e.ProcOld)((assign (weval e.Name) (t.Other)) e.OldParameterList)(e.Complexity)(e.ThisParameterList) t.ToParameter =
+		<AssignWEValName
+			(e.ProcOld (assign (weval e.Name) (t.Other)))(e.OldParameterList)(e.Complexity)(e.ThisParameterList)t.ToParameter
+		>;
+}
+
+
+/*вычисляет максимальное количество вхождений переменной в выражение*/
+WEComplexity
+{
+	(e.PList)(e.ParValList)(e.Complexity)(t.weval e.ThisParameterList) t.weval (e.Parametrized)=
+		(e.ParValList)(<MyInc e.Complexity>)(e.PList t.weval e.ThisParameterList)(e.Parametrized t.weval);
+	(e.PList)(e.ParValList)(e.Complexity)() t.weval (e.Parametrized) = 
+		(e.ParValList)(<MyMax e.Complexity <MyOne>>)(e.PList)(e.Parametrized t.weval);
+	(e.PList)(e.ParValList)(e.Complexity)(t.weval2 e.ThisParameterList) t.weval (e.Parametrized) =
+		<WEComplexity (e.PList t.weval2)(e.ParValList)(e.Complexity)(e.ThisParameterList)t.weval(e.Parametrized)>;
+		
+}
+
+/*слияние параметризаций скобок*/
+ParametrizeOutBrackets
+{
+	(e.BeforeBrackets)((e.OldParameterList)(e.Complexity)(e.ThisParameterList)(e.InBrackets))e.OutBrackets =
+		<ParametrizeExpression (e.OldParameterList)(e.Complexity)(e.ThisParameterList)
+				(e.BeforeBrackets ('*'e.InBrackets))e.OutBrackets
+		>;
+}
+
+
+/*******************************************************************************************
+ФУНКЦИИ УПРАВЛЕНИЯ РАЗРЕШЕНИЕМ УРАВНЕНИЙ В СЛОВАХ
+1. Приводим уравнения в словах к общему виду, считаем максимальную кратность переменных в каждом уравнении
+2. 
+********************************************************************************************/
+
+
+/*перебираем по одной конфигурации - ветке и проверяем в каждой все квадратные уравнения на наличие корней*/
+$ENTRY IterateProcessQWEs
+{
+	(e.Conf) = (<CheckQWESolvability4Conf ()e.Conf>);
+	(e.Conf)e.Confs = (<CheckQWESolvability4Conf ()e.Conf>)<IterateProcessQWEs e.Confs>;
+}
+
+/*проверяем все квадратные уравнения в конфигурации на разрешимость
+формат
+(e.ProcessedEqualities)(e.NPEqualities)e.Config(s.Log),
+где s.Log - результат работы функции - оценщика уравнения на разрешимость
+*/
+CheckQWESolvability4Conf
+{
+	(e.Eqs)Zero = Zero;
+	(e.EqPrev)(e.EqNext)e.OtherConf('F') = Zero;	
+	(e.Equations)()e.OtherConf (s.Log)= (e.Equations) e.OtherConf (s.Log);
+	(e.EqPrev)((AreEqual e.Equation)e.EqNext)e.OtherConf(s.Log) = 
+		<CheckQWESolvability4Conf (e.EqPrev (AreEqual e.Equation))(e.EqNext)e.OtherConf(<ExtractInfoQWE (AreEqual e.Equation)>)>;	
+}
+
+/*последовательная простейшая обработка уравнений во всех конфигурациях*/
+$ENTRY IterateWESimpleTransforms
+{
+	=	;
+	(Zero) e.Other = (Zero)<IterateWESimpleTransforms e.Other>;
+	(e.Config)e.Other = <IterateWESimpleTransform e.Config><IterateWESimpleTransforms e.Other>;
+}
+
+/*простейшая обработка уравнений в конфигурации*/
+IterateWESimpleTransform
+{
+	 =;
+	(e.NewEquations)(e.ParameterList)e.Conf ('F') =(Zero);
+	(e.NewEquations)(e.ParameterList)e.Conf (s.Log)=
+		<IterateWESimpleTransform1 <IfProcessible ()e.NewEquations>
+			(e.ParameterList)e.Conf
+		>;
+}
+
+/*простейшая обработка уравнений в конфигурации*/
+IterateWESimpleTransform1
+{
+/*если нет уравнений, в которые были сделаны подстановки - заканчиваем обработку конфигурации*/
+	()(e.NewEquations)'F'(e.ParameterList)e.Conf =
+		((e.NewEquations)(e.ParameterList)e.Conf('T'));
+
+/*хотя бы одно уравнение нашлось - разделяем его на подуравнения и опять проверяем, не внесло ли это изменения в другие уравнения*/
+	(AreEqual ((s.Log1)(e.Compl1)(e.LHS))((s.Log2)(e.Compl2)(e.RHS)))(e.OtherEquations)'T'
+		(e.ParameterList) e.Conf
+			= <IterateWESimpleTransforms
+				<SplitEquationLefts 
+				   <SubstAsWEquations
+					(e.OtherEquations)
+					(e.ParameterList)
+					<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.LHS)((<MyZero> Const))()(e.RHS))>
+					()
+					e.Conf ('T')
+				>>>;
+}
+
+
+/*частичная проверка, имеет ли уравнение корни
+Если степень всех элементов в мультимножестве - объединении м/м его правой и левой части превышает 2, ничего не делаем
+иначе запускаем проверку на наличие корней в квадратном уравнении
+формат: (AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS))) => s.Log
+*/
+ExtractInfoQWE
+{
+	(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS))) =
+		<ExtInfoQWE1
+			<LogOr 
+				'N' 
+				<MyIfNotLess 
+					<MyInc <MyOne>> 
+					<MaxElementPowerMS (<SubtractEl (Inf Const)(<MergeSets (e.Comp1)(e.Comp2)>)>)>
+				>
+			>
+			(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))
+		>;
+}
+
+
+ExtInfoQWE1
+{
+	'T' t.Equality = <DecideQWESolvability t.Equality>;
+	'N' t.Equality = 'N';
+}
+
+
+/*Первым в мультимножество назначается "нулевой" элемент - число констант
+Чтобы затем его было легко отделить.
+([WordEquation]*)([Assignment]*)((([MultiSet]) AreEqual (e.LHS)(e.RHS))*)
+	e.Config (s.Log) => (([WordEquation]*)([Assignment]*)e.Conf (s.Log))|Zero
+*/
+$ENTRY SplitEquationLefts
+{
+/*Конфигурация содержит противоречие*/
+	e.Config('F')=(Zero);
+
+/*Конфигурация не содержит расщеплений, поскольку они либо схлопнулись в противоречие, либо не были порождены*/
+	(Variants (e.Config1)) =
+		<SplitEquationLefts e.Config1>;
+
+/*Конфигурация содержит расщепления - обрабатываем их по отдельности*/
+	(Variants (e.Config1)e.OtherConfigs) =
+		<SplitEquationLefts e.Config1>
+		<SplitEquationLefts (Variants e.OtherConfigs)>;
+
+/*конец разбора уравнений - пока возвращаем всё как есть (в скобках)*/
+	(e.NewEquations)(e.ParameterList)()e.Conf (s.Log)=
+			((e.NewEquations)(e.ParameterList)e.Conf (s.Log));
+			
+/*Чистая обработка конфигурации:
+расщепляем одно имеющееся уравнение, подставляем результат его расщепления (если есть) в общую конфигурацию
+и продолжаем далее
+*/
+	(e.NewEquations)(e.ParameterList)(((e.Complexity) AreEqual (e.LHS)(e.RHS))e.ParametrizedEqs)
+	e.Config (s.Log)
+	 = <SplitEquationLefts 
+		 <SubstAsWEquations (e.NewEquations)(e.ParameterList) 
+			 <SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.LHS)((<MyZero> Const))()(e.RHS))>
+			 (e.ParametrizedEqs)e.Config (s.Log)
+		>
+		
+	>;
+}
+
+/*если в результате разделения уравнений получилась подстановка, подставляем её, 
+если получилась ложь, удаляем всё уравнение,
+если получилось много подстановок - варианты - 
+
+иначе просто сохраняем 
+полученные уравнения
+(e.NewEquations)(e.ParameterList)(AreEqual (e.Complexity1)(e.LHS)(e.Complexity2)(e.RHS))
+			(Desired e.calls)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log)
+			=>(e.NewEquations)(e.ParameterList)
+			(Desired e.calls)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log)
+
+*/
+SubstAsWEquations {
+/*уравнение породило противоречие*/
+	(e.NewEquations)(e.ParameterList)(e.WevalAssignments)(e.ContradictEquation)('F')(e.ParametrizedEqs)
+	e.Config (s.Log) = 
+		()()e.Config ('F');
+
+/*разобраны и подстановки, и уравнения => возвращаем конфигурацию*/
+	(e.NewEquations)(e.ParameterList)((Case ))()(s.Log1)(e.ParametrizedEqs)
+	e.Config (s.Log) = 
+		(e.NewEquations)(e.ParameterList)(e.ParametrizedEqs)
+		e.Config (s.Log);
+
+	(e.NewEquations)(e.ParameterList)()()(s.Log1)(e.ParametrizedEqs)
+	e.Config (s.Log) = 
+		(e.NewEquations)(e.ParameterList)(e.ParametrizedEqs)
+		e.Config (s.Log);
+
+/*первым делом перемещаем уравнения*/
+	(e.NewEquations)(e.ParameterList)(e.WEA)((AreEqual (e.Comp1)(e.LHS)(e.Comp2)(e.RHS)) e.CurrEq)(s.Log0)(e.ParametrizedEqs)
+	e.Config (s.Log) = 
+		<SubstAsWEquations
+			(e.NewEquations (AreEqual (('F')(e.Comp1)(e.LHS))(('F')(e.Comp2)(e.RHS))))
+			(e.ParameterList)
+			(e.WEA)
+			(e.CurrEq)
+			(s.Log0)
+			(e.ParametrizedEqs)
+			e.Config (s.Log)
+		>;
+
+/*имеется единственная подстановка - сразу подставляем её во все - необработанные
+и обработанные - уравнения*/
+	(e.NewEquations)(e.ParameterList)((Case (assign (e.Name)(e.Complex)(e.Val)) e.otherasgn))()(s.Log0)(e.ParametrizedEqs)
+	e.Config (s.Log),
+        <TermContradiction (e.Name) e.Val> : 'F' = 
+		<SubstAsWEquations
+			<SubstituteWEAssignment (assign (e.Name)(e.Complex)(e.Val))
+                            <SubstituteInLSWEPL ()(assign (e.Name)(e.Complex)(e.Val))
+						    (e.NewEquations)
+						    (e.ParameterList)((Case e.otherasgn))(e.ParametrizedEqs)>
+                        >
+			e.Config (s.Log)
+		>;
+
+	(e.NewEquations)(e.ParameterList)((assign (e.Name)(e.Complex)(e.Val)))()(s.Log0)(e.ParametrizedEqs)
+	e.Config (s.Log),
+        <TermContradiction (e.Name) e.Val> : 'F' = 
+		<SubstAsWEquations
+			<SubstituteWEAssignment (assign (e.Name)(e.Complex)(e.Val))
+                            <SubstituteInLSWEPL ()(assign (e.Name)(e.Complex)(e.Val))
+						    (e.NewEquations)
+						    (e.ParameterList)((Case ))(e.ParametrizedEqs)>
+                        >
+			e.Config (s.Log)
+		>;
+
+/*разные варианты подстановок - все их разделяем вместе с данными на варианты конфигураций*/
+	(e.NewEquations)(e.ParameterList)((Case (assign e.asgn) e.otherasgn) e.OtherCases)()(s.Log0)(e.ParametrizedEqs)
+	e.Config (s.Log) = 
+		(Variants 
+			(<SubstAsWEquations
+				(e.NewEquations)(e.ParameterList)
+				((Case (assign e.asgn) e.otherasgn))
+				()(s.Log0)(e.ParametrizedEqs)
+				e.Config (s.Log)
+			>)
+			(<SubstAsWEquations 
+				(e.NewEquations)(e.ParameterList)
+				(e.OtherCases)
+				()(s.Log0)(e.ParametrizedEqs)
+				e.Config (s.Log)
+			>)
+		);
+
+	(e.NewEquations)(e.ParameterList)((Case ) e.othercases)()(s.Log0)(e.ParametrizedEqs)
+	e.Config (s.Log) = 
+		<SubstAsWEquations
+			(e.NewEquations)
+			(e.ParameterList)
+			(e.othercases)
+			()
+			(s.Log0)
+			(e.ParametrizedEqs)
+			e.Config (s.Log)
+		>;
+/*Единственная имеющаяся подстановка оказалась противоречивой.*/
+        (e.NewEquations)(e.ParameterList)(e.WEA)(e.CurrEq)(s.Log0)(e.ParametrizedEqs)
+	e.Config (s.Log) = ()()e.Config ('F');
+}
+
+
+/*объединение двух расщеплений уравнений*/
+MergeSplits {
+/*если нашлось противоречие - коллапс*/
+	(e.Asgmnts)(e.Equations)(s.Log1)(e.Asgmnts2)(e.Equations2)('F') = ()()('F');
+	(e.Asgmnts)(e.Equations)('F')(e.Asgmnts2)(e.Equations2)(s.Log2) = ()()('F');
+/*хоть один блок назначений пуст - простое слияние*/
+        (e.Asgmnts)(e.Equations)(s.Log1)()(e.Equations2)(s.Log2) = 
+		(e.Asgmnts)(e.Equations e.Equations2)(<LogAnd s.Log1 s.Log2>);
+	()(e.Equations)(s.Log1)(e.Asgmnts)(e.Equations2)(s.Log2) = 
+		(e.Asgmnts)(e.Equations e.Equations2)(<LogAnd s.Log1 s.Log2>);
+/*оба блока назначений состоят лишь из одного случая -
+необходимо проверить, не содержит ли это назначение противоречия с назначениями в другом блоке*/
+    ((Case e.Asgmnt))(e.Equations)(s.Log1)((Case e.Asgmnt2))(e.Equations2)(s.Log2) = 
+		<CheckRepeatedWevalAsg4Split (e.Asgmnt)(e.Asgmnt2)(e.Equations)(s.Log1)(e.Equations2)(s.Log2)>;
+	((assign e.asgmt))(e.Equations)(s.Log1)((Case e.Asgmnt2))(e.Equations2)(s.Log2) = 
+		<CheckRepeatedWevalAsg4Split (((assign e.asgmt)))(e.Asgmnt2)(e.Equations)(s.Log1)(e.Equations2)(s.Log2)>;
+	((Case e.Asgmnt))(e.Equations)(s.Log1)((assign e.Asgmnt2))(e.Equations2)(s.Log2) = 
+		<CheckRepeatedWevalAsg4Split (e.Asgmnt)((assign e.Asgmnt2))(e.Equations)(s.Log1)(e.Equations2)(s.Log2)>;
+}
+
+
+/*проверка, имеются ли в соседних расщеплениях повторные назначения для переменных*/
+CheckRepeatedWevalAsg4Split {
+/*назначения первого расщепления исчерпаны*/
+	()(e.Assignments)(e.Equations1)(s.Log1)(e.Equations2)(s.Log2) = 
+			((Case e.Assignments))(e.Equations1 e.Equations2)(<LogAnd s.Log1 s.Log2>);
+
+	((assign e.Asgmt) e.Asgnmts0)(e.Assignments)(e.Equations1)(s.Log1)(e.Equations2)(s.Log2) =
+			<MergeSplits4Check
+				<CheckSingleAsg4Split (assign e.Asgmt)(e.Assignments)>
+				<CheckRepeatedWevalAsg4Split (e.Asgnmts0)(e.Assignments)(e.Equations1)(s.Log1)(e.Equations2)(s.Log2) >
+			>;
+}
+
+/*проверка отдельного назначения переменной на повторность*/
+CheckSingleAsg4Split {
+/*назначения второго расщепления просмотрены, среди них не оказалось назначения для той же переменной*/
+	(assign e.Asgmt)() = ((Case (assign e.Asgmt)))()('T'); 
+/*назначения для переменных текстуально совпали*/
+	(assign t.Name t.Pow t.Val)((assign t.Name t.Pow2 t.Val) e.other) = ((Case ))()('T');
+/*назначения для переменных различны - исследуем их равенство*/
+	(assign t.Name t.Pow1 (e.Val1))((assign t.Name t.Pow2 (e.Val2)) e.other) = 
+				<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.Val1)((<MyZero> Const))()(e.Val2))>;
+	(assign t.Name t.Pow t.Val)((assign t.Name2 t.Pow2 t.Val2) e.other) = <CheckSingleAsg4Split (assign t.Name t.Pow t.Val)(e.other)>;
+}
+
+/*слияние результатов двух проверок*/
+MergeSplits4Check
+{
+	((Case e.Asgmnt))()(s.Log1)((Case e.Asgmnt2))(e.Equations2)(s.Log2) = 
+		((Case e.Asgmnt e.Asgmnt2))(e.Equations2)(<LogAnd s.Log1 s.Log2>);
+	(e.Asgmnts)(e.Equations)(s.Log1)(e.Asgmnts2)(e.Equations2)(s.Log2) = 
+		<MergeSplits (e.Asgmnts)(e.Equations)(s.Log1)(e.Asgmnts2)(e.Equations2)(s.Log2)>;
+}
+
+/*подстановка нового назначения в список назначений*/
+SubstituteInLSWEPL {
+/*список назначений исчерпан*/
+	(e.ParameterListChecked)(assign (e.Name)(e.Complex)(e.Val))(e.NewEquations)()((Case e.Cases))(e.ParametrizedEqs)=
+		(e.NewEquations)(e.ParameterListChecked (assign (e.Name)(e.Complex)(e.Val)))((Case e.Cases))(e.ParametrizedEqs);
+
+/*нашлось повторное - такое же - назначение*/
+	(e.ParameterListChecked)(assign t.Name (e.Complex) t.Val)(e.NewEquations)((assign t.Name t.Complex2 t.Val) e.ParL)
+	((Case e.Cases))(e.ParametrizedEqs)=
+		(e.NewEquations)(e.ParameterListChecked (assign t.Name (e.Complex) t.Val) e.ParL)((Case e.Cases))(e.ParametrizedEqs);
+
+/*нашлось повторное назначение, отличное от данного*/
+	(e.ParameterListChecked)(assign t.Name t.Complex1 t.Val1)(e.NewEquations)((assign t.Name t.Complex2 t.Val2) e.ParL)
+		((Case e.Cases))(e.ParametrizedEqs)=
+			(e.NewEquations (AreEqual (('T') t.Complex1 t.Val1) (('T') t.Complex2 t.Val2))) 
+			(e.ParameterListChecked (assign t.Name t.Complex2 t.Val2) e.ParL)
+			((Case e.Cases))(e.ParametrizedEqs);
+
+	(e.ParameterListChecked)(assign t.Name (e.Complex)(e.Val))(e.NewEquations)((assign e.OtherAsgn) e.ParL)
+		((Case e.Cases))(e.ParametrizedEqs)=
+			<SubstituteInLSWEPL 
+				(e.ParameterListChecked (assign e.OtherAsgn))(assign t.Name (e.Complex)(e.Val))
+				(e.NewEquations)(e.ParL)((Case e.Cases))(e.ParametrizedEqs)>;
+}
+
+/*(assign (e.Name)(e.Complex)(e.Val))(e.NewEquations)(e.ParameterList)((Case e.otherasgn))(e.ParametrizedEqs)
+=>
+(e.NewEquations1)(e.ParameterList1)((Case e.otherasgn))(s.Log)(e.ParametrizedEqs1)*/
+SubstituteWEAssignment 
+{
+        (assign e.asgn)(e.NewEquations)(e.ParameterList)((Case e.otherasgn))(e.ParametrizedEqs) =
+            (<SubstituteInWEqs (assign e.asgn) e.NewEquations>)
+            (e.ParameterList)
+            ((Case e.otherasgn))
+	    ()
+	    ('T')
+            (<SubstituteInCoreWEqs (assign e.asgn) e.ParametrizedEqs>);
+}
+
+/*подстановка назначения weval в уравнения в словах
+(assign (weval e.x)(e.Comp2)(e.Asgnment))(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))^* => 
+(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))^*
+*/
+SubstituteInWEqs
+{
+	(assign e.asgment) = ;
+
+/*проверка, нужно ли подставлять назначение в левую и правую части уже обработанных на сложность уравнений*/
+	(assign (weval e e.x)(e.Comp)(e.Asgnment))(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))e.Z =
+		<SubstituteInWEqAux 
+			<IfIncluded 
+				(e.Comp1)
+				(<MyOne> (weval e e.x))
+			>
+			<IfIncluded 				
+				(e.Comp2)
+				(<MyOne> (weval e e.x))
+			>
+			(assign (weval e e.x)(e.Comp)(e.Asgnment))
+			(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))
+		>
+		<SubstituteInWEqs
+			(assign (weval e e.x)(e.Comp)(e.Asgnment))
+			e.Z
+		>;
+
+/*проверка, нужно ли подставлять назначение в левую и правую части уже обработанных на сложность уравнений -
+вариант для переменных длины 1*/
+	(assign (weval e.x)(e.Comp)(e.Asgnment))(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))e.Z =
+		<SubstituteInWEqAux 
+			<IfIncluded 
+				(e.Comp1)
+				(<MyOne> Const)
+			>
+			<IfIncluded 				
+				(e.Comp2)
+				(<MyOne> Const)
+			>
+			(assign (weval e.x)(e.Comp)(e.Asgnment))
+			(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS)))
+		>
+		<SubstituteInWEqs
+			(assign (weval e.x)(e.Comp)(e.Asgnment))
+			e.Z
+		>;
+}
+
+/*подстановка в уравнения вида (AreEqual (e.Comp1)(e.LHS)(e.RHS)) - результат переименования переменных
+результат (AreEqual (e.Comp1)(e.NewLHS)(e.NewRHS))^* 
+*/
+SubstituteInCoreWEqs
+{   
+	(assign e.asgment) = ;
+	(assign e.asgment)((e.Comp1) AreEqual (e.LHS)(e.RHS))e.Z =
+		((e.Comp1)AreEqual (<SubstituteInWE (assign e.asgment) e.LHS>)
+			(<SubstituteInWE (assign e.asgment) e.RHS>))
+			<SubstituteInCoreWEqs (assign e.asgment) e.Z>;
+}
+
+/*обработка результата оценки: входит ли переменная подстановки в какую-либо часть данного уравнения*/
+SubstituteInWEqAux
+{
+/*нет вхождений переменной ни в левую, ни в правую части*/
+	'FF'(assign e.asgment)(AreEqual e.Z) = (AreEqual e.Z);
+
+/*все прочие случаи*/
+	'FT'(assign (weval e.x)(e.Comp)(e.Asgnment))
+		(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS))) =
+			(AreEqual 
+				((s.Log1)(e.Comp1)(e.LHS))
+				(
+					('T')
+					<ReplaceMSEl ((weval e.x)(e.Comp))(e.Comp2)>
+					(<SubstituteInWE (assign (weval e.x)(e.Comp)(e.Asgnment)) e.RHS>)
+				)
+			);
+	'TF'(assign (weval e.x)(e.Comp)(e.Asgnment))
+		(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS))) =
+			(AreEqual 
+				(
+					('T')
+					<ReplaceMSEl ((weval e.x)(e.Comp))(e.Comp1)>
+					(<SubstituteInWE (assign (weval e.x)(e.Comp)(e.Asgnment)) e.LHS>)
+				)
+                                ((s.Log2)(e.Comp2)(e.RHS))
+				
+			);
+	'TT'(assign (weval e.x)(e.Comp)(e.Asgnment))
+		(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS))) =
+			(AreEqual 
+				(
+					('T')
+					<ReplaceMSEl ((weval e.x)(e.Comp))(e.Comp1)>
+					(<SubstituteInWE (assign (weval e.x)(e.Comp)(e.Asgnment)) e.LHS>)
+				)
+                                (
+					('T')
+					<ReplaceMSEl ((weval e.x)(e.Comp))(e.Comp2)>
+					(<SubstituteInWE (assign (weval e.x)(e.Comp)(e.Asgnment)) e.RHS>)
+				)
+				
+			);
+	 
+}
+
+/*подготовительная функция для разделения уравнения на подуравнения
+результат:
+(e.Assignments)(e.Equations)(s.Log)
+e.Equations::=(AreEqual ((s.Log1)(e.MS1)(e.LHS))((s.Log2)(e.MS2)(e.RHS)))^*/
+$ENTRY SplitEquationLeft {
+/*с двух сторон одно и то же - успешное завершение, уравнение пропадает (тождество)*/
+	(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)()) = ()()('T'); 
+/*с одной стороны ещё остались термы или переменные, а с другой уже нет 
+*/
+	(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)(e.2)) = <SplitEquationLeft1 ('F')(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)(e.2))>; 
+	(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)()) = <SplitEquationLeft1 ('F')(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)())>; 
+/*отщепление равных термов слева и справа*/
+	(AreEqual (e.ParMS1)()(e.1 t.1)(e.ParMS2)()(e.2 t.1)) = 
+				<SplitEquationLeft (AreEqual (e.ParMS1)()(e.1)(e.ParMS2)()(e.2))>;
+	(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)(t.1 e.2)) = 
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>;
+	(AreEqual (e.ParMS1)(e.Proc1)(e.1 t.1)(e.ParMS2)(e.Proc2)(e.2 t.1)) = 
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>;
+
+	(AreEqual (e.ParMS1)()(('*'e.B1)e.F1)(e.ParMS2)()(('*'e.B2)e.F2)) = 
+                                <MergeSplits <SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.B1)((<MyZero> Const))()(e.B2))>
+				<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.F1)((<MyZero> Const))()(e.F2))>
+			>;
+	(AreEqual (e.ParMS1)()(e.F1('*'e.B1))(e.ParMS2)()(e.F2('*'e.B2))) = 
+                                <MergeSplits <SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.B1)((<MyZero> Const))()(e.B2))>
+				<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.F1)((<MyZero> Const))()(e.F2))>
+			>;
+/*находим переменную (с одной или двух сторон), переходим уже к настоящему расщеплению уравнений*/
+	(AreEqual (e.ParMS1)(e.Proc1)((weval e e.index1) e.1)(e.ParMS2)(e.Proc2)((weval e e.index2) e.2)) = 
+				<SplitEquationLeftAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)
+						(e.Proc1 (weval e e.index1))
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						(e.Proc2 (weval e e.index2))
+						(e.2)
+					)
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)((weval e e.index1) e.1)(e.ParMS2)(e.Proc2)(t.2 e.2)) = 
+				<SplitEquationLeftAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)
+						(e.Proc1 (weval e e.index1))
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)
+						(e.Proc2 t.2)
+						(e.2)
+					)
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)((weval e e.index2) e.2)) = 
+				<SplitEquationLeftAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)
+						(e.Proc1 t.1)
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						(e.Proc2 (weval e e.index2))
+						(e.2)
+					)
+				>;
+				
+/*Все остальные случаи касаются лишь переменных weval типов s и t*/
+	(AreEqual (e.ParMS1)(e.Proc1)(s.1 e.1)(e.ParMS2)(e.Proc2)((weval e.Name) e.2)) = 
+				<MergeSplits 
+					((Case (assign (weval e.Name) ((<MyOne> Const))(s.1))))()('T')
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)((weval e.Name) e.1)(e.ParMS2)(e.Proc2)(s.2 e.2)) = 
+				<MergeSplits 
+					((Case (assign (weval e.Name) ((<MyOne> Const))(s.2))))()('T')
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)((weval s e.SId) e.1)(e.ParMS2)(e.Proc2)((weval e.Name) e.2)) = 
+				<MergeSplits 
+					((Case (assign (weval e.Name) ((<MyOne> Const))((weval s e.SId)))))()('T')
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)((weval e.Name) e.1)(e.ParMS2)(e.Proc2)((weval s e.SId) e.2)) = 
+				<MergeSplits 
+					((Case (assign (weval e.Name) ((<MyOne> Const))((weval s e.SId)))))()('T')
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)((weval t e.Name) e.2)),
+        <TermContradiction (weval t e.Name) t.1> : 'F' = 
+				<MergeSplits 
+					((Case (assign (weval t e.Name) ((<MyOne> Const))(t.1))))()('T')
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>
+				>;
+	(AreEqual (e.ParMS1)(e.Proc1)((weval t e.Name) e.1)(e.ParMS2)(e.Proc2)(t.2 e.2)),
+        <TermContradiction (weval t e.Name) t.2> : 'F' = 
+				<MergeSplits 
+					((Case (assign (weval t e.Name) ((<MyOne> Const))(t.2))))()('T')
+				<SplitEquationLeft (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))>
+				>;
+				
+/*ни с одной стороны не переменная, но не равные термы*/
+	(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)(e.2)) = ()()('F');
+	(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(t.2 e.2)) = ()()('F');
+
+}				
+
+/*вспомогательная функция - переход к расщеплению при нахождении переменных
+проверяется, одинаковы ли мультимножества уже обработанных параметров (за исключением констант)*/
+SplitEquationLeftAux {
+	(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2)) =
+		<SplitEquationLeft1
+			(<CompareMultiSets (e.ParMS1)(e.ParMS2)>)
+			(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))
+		>;
+}
+
+/*вспомогательная функция - переход к расщеплению при нахождении переменных
+проверяется, одинаковы ли мультимножества уже обработанных параметров (за исключением констант)*/
+SplitEquationRightAux {
+	(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2)) =
+		<SplitEquationRight
+			(<CompareMultiSets (e.ParMS1)(e.ParMS2)>)
+			(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))
+		>;
+}
+
+
+SplitEquationLeft1 {
+/*оба выражения исчерпаны*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)()) = 
+		<SplitEquationRight ('F')(AreEqual ((<MyZero> Const))()(e.Proc1)((<MyZero> Const))()(e.Proc2))>;
+			/*<NumericEstimation 
+				(<SubtractMS (e.ParMS1)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+				(<SubtractMS (e.ParMS2)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+				(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
+			>; */
+/*мультимножества уже обработанных параметров слева и справа одинаковы - оба уравнения обрабатываются отдельно друг от друга*/
+	('T')(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2)) = 
+			<MergeSplits ()((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('T')
+				<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.1)((<MyZero> Const))()(e.2))>
+			>; 
+
+/*слева первая - переменная - включаем её в мультимножество. справа ничего*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)((weval e e.index1)e.1)(e.ParMS2)(e.Proc2)()) = 
+			<SplitEquationLeft1 ('F')(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)(e.Proc1 (weval e e.index1))(e.1)
+							(e.ParMS2)(e.Proc2)())>;
+/*слева первая - константа - включаем её в мультимножество. справа ничего*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)()) = 
+			<SplitEquationLeft1 ('F')(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)(e.Proc1 t.1)(e.1)
+							(e.ParMS2)(e.Proc2)())>;
+/*справа ---------------*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)((weval e e.index2) e.2)) = 
+				<SplitEquationLeft1 ('F')
+					(AreEqual (e.ParMS1)(e.Proc1)()
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						(e.Proc2 (weval e e.index2))
+						(e.2)
+					)
+				>;
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)(t.2 e.2)) = 
+				<SplitEquationLeft1 ('F')
+					(AreEqual (e.ParMS1)(e.Proc1)()
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)
+						(e.Proc2 t.2)
+						(e.2)
+					)
+				>;
+/*с двух сторон - переменные*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)((weval e e.index1) e.1)(e.ParMS2)(e.Proc2)((weval e e.index2) e.2)) = 
+				<SplitEquationLeftAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)
+						(e.Proc1 (weval e e.index1))
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						(e.Proc2 (weval e e.index2))
+						(e.2)
+					)
+				>;
+/*переменная - с одной стороны*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)((weval e e.index1) e.1)(e.ParMS2)(e.Proc2)(t.2 e.2)) = 
+				<SplitEquationLeftAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)
+						(e.Proc1 (weval e e.index1))
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)
+						(e.Proc2 t.2)
+						(e.2)
+					)
+				>;
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)((weval e e.index2) e.2)) = 
+				<SplitEquationLeftAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)
+						(e.Proc1 t.1)
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						(e.Proc2 (weval e e.index2))
+						(e.2)
+					)
+				>;
+/*с двух сторон - константы. Можно не проверять мультимножества параметров на равенство*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(t.1 e.1)(e.ParMS2)(e.Proc2)(t.2 e.2)) = 
+				<SplitEquationLeft1 
+					('F')(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)(e.Proc1 t.1)(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)(e.Proc2 t.2)(e.2)
+					)
+				>;
+
+}				
+
+
+SplitEquationRight {
+/*оба выражения исчерпаны*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)()) = 
+			<NumericEstimation 
+				(<SubtractMS (e.ParMS1)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+				(<SubtractMS (e.ParMS2)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+				(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
+			>; 
+/*мультимножества уже обработанных параметров слева и справа одинаковы - оба уравнения обрабатываются отдельно друг от друга*/
+	('T')(AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2)) = 
+			<MergeSplits ()((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('T')
+				<SplitEquationLeft (AreEqual ((<MyZero> Const))()(e.1)((<MyZero> Const))()(e.2))>
+			>; 
+
+/*слева последняя - переменная - включаем её в мультимножество. справа ничего*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(e.1 (weval e e.index1))(e.ParMS2)(e.Proc2)()) = 
+			<SplitEquationRight ('F')(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)((weval e e.index1)e.Proc1)(e.1)
+							(e.ParMS2)(e.Proc2)())>;
+/*слева последняя - константа - включаем её в мультимножество. справа ничего*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(e.1 t.1)(e.ParMS2)(e.Proc2)()) = 
+			<SplitEquationRight ('F')(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)(t.1 e.Proc1)(e.1)
+							(e.ParMS2)(e.Proc2)())>;
+/*справа ---------------*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)( e.2 (weval e e.index2))) = 
+				<SplitEquationRight ('F')
+					(AreEqual (e.ParMS1)(e.Proc1)()
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						((weval e e.index2) e.Proc2)
+						(e.2)
+					)
+				>;
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)(e.Proc2)( e.2 t.2)) = 
+				<SplitEquationRight ('F')
+					(AreEqual (e.ParMS1)(e.Proc1)()
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)
+						(t.2 e.Proc2)
+						(e.2)
+					)
+				>;
+/*с двух сторон - переменные*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(e.1 (weval e e.index1))(e.ParMS2)(e.Proc2)(e.2 (weval e e.index2))) = 
+				<SplitEquationRightAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)
+						((weval e e.index1) e.Proc1 )
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						((weval e e.index2) e.Proc2 )
+						(e.2)
+					)
+				>;
+/*переменная - с одной стороны*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)( e.1 (weval e e.index1))(e.ParMS2)(e.Proc2)( e.2 t.2)) = 
+				<SplitEquationRightAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> (weval e e.index1))>)
+						((weval e e.index1) e.Proc1 )
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)
+						(t.2 e.Proc2 )
+						(e.2)
+					)
+				>;
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)(e.1 t.1 )(e.ParMS2)(e.Proc2)(e.2 (weval e e.index2))) = 
+				<SplitEquationRightAux 
+					(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)
+						(t.1 e.Proc1 )
+						(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> (weval e e.index2))>)
+						((weval e e.index2) e.Proc2 )
+						(e.2)
+					)
+				>;
+/*с двух сторон - константы. Можно не проверять мультимножества параметров на равенство*/
+	(s.Log)(AreEqual (e.ParMS1)(e.Proc1)( e.1 t.1)(e.ParMS2)(e.Proc2)( e.2 t.2)) = 
+				<SplitEquationRight
+					('F')(AreEqual (<InsertInMultiSet (e.ParMS1)(<MyOne> Const)>)(t.1 e.Proc1 )(e.1)
+						(<InsertInMultiSet (e.ParMS2)(<MyOne> Const)>)(t.2 e.Proc2 )(e.2)
+					)
+				>;
+
+}				
+
+
+NumericEstimation {
+/*1. Константы сопоставляются пустому выражению => противоречие*/
+	((s.Pow Const)e.LSE)()(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = ()()('F');
+	()((s.Pow Const)e.RSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = ()()('F');
+/*2. Переменные сопоставляются пустому выражению => все они пусты*/
+	(e.LSE)()(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = <AssignNil (Case )(e.LSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))>;
+	()(e.RSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = <AssignNil (Case )(e.RSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))>;
+/*3. Имеется линейное диофантово уравнение на длины переменных => разрешаем его и возвращаем список назначений*/
+	(e.LSE)((s.Pow Const))(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.LSE)((s.Pow Const)))>
+											((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))>;
+	((s.Pow Const))(e.RSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.RSE)((s.Pow Const)))>
+											((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))>;
+/*С одной стороны - лишь одна переменная => возвращаем назначение
+КОММЕНТАРИЙ: её не может быть с другой стороны, иначе выполнился бы случай 3*/
+	(e.LSE)(e.RSE)(AreEqual (e.ParMS1)((weval e.var))(e.ParMS2)(e.Proc2)), 
+        <TermContradiction (weval e.var) e.Proc2> : 'F'
+		= ((Case (assign (weval e.var)(e.ParMS2) (e.Proc2))))()('T');
+	(e.LSE)(e.RSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)((weval e.var))),
+        <TermContradiction (weval e.var) e.Proc1> : 'F'
+		=((assign (weval e.var)(e.ParMS1)(e.Proc1)))()('T');
+/*Во всех прочих случаях возвращаем уравнение как есть*/
+	(e.LSE)(e.RSE)(AreEqual (e.ParMS11 (s.Pow1 Const) e.ParMS12)(e.Proc1)(e.ParMS21 (s.Pow2 Const) e.ParMS22)(e.Proc2)),
+        <SolveLinearDE ('F')(AreEqual (<SymSubstMS (e.ParMS11 e.ParMS12)(e.ParMS21 e.ParMS22)>)(<SymSubstMS ((s.Pow1 Const))((s.Pow2 Const))>))> : ()('F')
+        = ()()('F');
+/*Во всех прочих случаях возвращаем уравнение как есть*/
+	(e.LSE)(e.RSE)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))=()((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('T');
+}
+
+/*заменяем все вхождения переменных, равных пустому слову, в две части уравнения, на пустое слово. удаляем эти переменные из мультимножеств-индикаторов
+добавляем назначения вида "переменная равна пустому слову"*/
+AssignNil {
+	(e.Assignments)()(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) = ((e.Assignments))((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('T');
+	(e.Assignments)((t.Power (weval e e.index)) e.other)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) =
+				
+				<AssignNil (e.Assignments (assign (weval e e.index) ((<MyZero> Const))()))(e.other)
+					(AreEqual 
+						(<SubtractEl (Inf (weval e e.index))(e.ParMS1)>)
+						(<SubstituteInWE (assign (weval e e.index)((<MyZero> Const))()) e.Proc1>)
+						(<SubtractEl (Inf (weval e e.index))(e.ParMS2)>)
+						(<SubstituteInWE (assign (weval e e.index)((<MyZero> Const))()) e.Proc2>)
+					)
+				>;
+	(e.Assignments)(t.1 e.other)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)) =
+				<AssignNil (e.Assignments)(e.other)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))>;
+	(e.EqPart)e.Equality = ()()('F');
+}
+
+/*после того как ЛДУ на длины уравнений решено, смотрим результат
+*/
+FormatAfterDE {
+/*у ЛДУ нет решений*/
+	(e.WevalAsgmnts)('F')((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))=()()('F');
+/*у ЛДУ более одного решения*/
+	(e.WevalAsgmnts)('N')((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))=
+		(e.WevalAsgmnts)((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('N');
+/*нашлось единственное решение ЛДУ*/
+	(e.WevalAsgmnt)('T')((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))=
+		(e.WevalAsgmnt)((AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2)))('T');
+}
+
+/*подстановка в часть уравнения*/
+$ENTRY SubstituteInWE {
+	(e.Subst) = ;
+	(e.Subst) s.1 e.RightSide = s.1 <SubstituteInWE (e.Subst) e.RightSide>;
+	(e.Subst) ('*' e.RightSide) e.RS2 = 
+		('*' <SubstituteInWE (e.Subst) e.RightSide>) 
+		<SubstituteInWE (e.Subst) e.RS2>;
+	(e.Subst) (call e.functionname (args (arg e.arg1)))e.RS2 = 
+		(call e.functionname (args (arg <SubstituteInWE (e.Subst) e.arg1>))) 
+		<SubstituteInWE (e.Subst) e.RS2>;
+	(assign t.WEValId e.Complexity (e.Val)) t.WEValId e.RS2 = 
+		e.Val <SubstituteInWE (assign t.WEValId e.Complexity(e.Val)) e.RS2>;
+	(e.Subst)t.1 e.RS2 = 
+		t.1 <SubstituteInWE (e.Subst) e.RS2>;
+}

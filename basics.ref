@@ -1,0 +1,422 @@
+/*******************************************************************************************************
+
+                            Модуль основных функций: обхода дерева, арифметических,
+                            логических, функций над множествами и мультимножествами.
+
+*******************************************************************************************************/
+
+/*******************************************************************************************************
+
+				БЛОК ФУНКЦИЙ РАБОТЫ С МУЛЬТИМНОЖЕСТВАМИ
+
+Мультимножество --- набор элементов вида ([Power] [Name]), где [Name] -- терм, [Power] -- натуральное число.
+В дальнейшем [Power] [Name])^* = [MultiSet] (либо [MS])
+
+*******************************************************************************************************/
+
+/*([MS]_1) ([MS]_2) => s.Log
+является ли [MS]_1 подмультимножеством [MS]_2*/
+$ENTRY IfASubMultiSet {
+	()(e.MS2) = 'T';
+	((t.power t.par) e.MS1)(e.MS2) = <LogAnd <IfIncluded (e.MS2)(t.power t.par)><IfASubMultiSet (e.MS1)(e.MS2)>>;
+}
+
+/*([MS])(t.power t.par) => s.Log
+является ли ((t.power t.par)) подмультимножеством [MS]*/
+$ENTRY IfIncluded {
+	()(t.power t.par) = 'F';
+	((t.power1 t.par) e.MS)(t.power t.par) = <MyIfNotLess t.power1 t.power>;
+	((t.power1 t.par1) e.MS)(t.power t.par) = <IfIncluded (e.MS)(t.power t.par)>;
+}
+
+/*Сравнение мультимножеств
+([MS])([MS]) => s.Log
+T - если мультимножества совпадают, F - иначе*/
+$ENTRY CompareMultiSets {
+	()() = 'T';
+	(t.1 e.MS1 )(e.MS21 t.1 e.MS22) = <CompareMultiSets (e.MS1)(e.MS21 e.MS22)>;
+	(e.MS1)(e.MS2) = 'F';
+}
+
+/*ТОЧНОЕ удаление термa t.1 из множества(как элемента множества)
+s.Log выдаёт информацию о том, были ли удалены все элементы удаляемого множества
+t.1 (t.^*) => (t.^*)s.Log*/
+$ENTRY SubtractSetFromSet {
+	t.1 (e.MS1 t.1 e.MS2) = (e.MS1 e.MS2)'T';
+	t.1 (e.MS) = (e.MS)'F'; 
+}
+
+/*Нахождение пересечения мультимножеств
+([MS])([MS])=> [MS]*/
+$ENTRY FindMSIntersection {
+	()(e.MS2) = ;
+	((t.power t.name) e.MS1)(e.MS21 (t.power1 t.name) e.MS22) = 
+		(<MyMin t.power t.power1> t.name)
+		<FindMSIntersection (e.MS1)(e.MS21 e.MS22)>;
+	(t.1 e.MS1)(e.MS2) = <FindMSIntersection (e.MS1)(e.MS2)>;
+}
+
+/*Нахождение разности мультимножеств [MS]_1\[MS]_2
+([MS]_1)([MS]_2) => [MS]*/
+$ENTRY SubtractMS {
+	(e.MS1)() = e.MS1;
+	(e.MS1)(t.1 e.MS2) = <SubtractMS (<SubtractEl t.1 (e.MS1)>)(e.MS2)>;
+}
+
+/*Замена элемента t.ElementNAme элементами [MS]_1 в [MS]_2
+(t.ElementName ([MS]_1))([MS]_2) => ([MS])*/
+$ENTRY ReplaceMSEl {
+	(t.ElementName (e.MS1))(e.MS2) = <ReplaceMSEl1 ()(t.ElementName (e.MS1))(e.MS2)>;
+}
+
+ReplaceMSEl1 {
+	(e.MS2)(t.Element (e.MS1))() = (e.MS2);
+	(e.MS2)(t.Name (e.MS1))((0 t.Name) e.MS2a) = (e.MS2 e.MS2a);
+	(e.MS2)(t.Name (e.MS1))((t.Power t.Name)e.MS2a) = 
+					<ReplaceMSEl1 
+						(<MergeSets (e.MS2 e.MS2a)(e.MS1)>)
+						(t.Name (e.MS1))
+						((<MySub t.Power <MyOne>> t.Name))
+					>;
+	(e.MS2)(t.Name (e.MS1))(t.OtherElement e.MS2a) = <ReplaceMSEl1 (e.MS2 t.OtherElement)(t.Name (e.MS1))(e.MS2a)>;
+}
+
+/*Вычитание элемента из мультимножества
+t.Elem([MS]) => [MS]
+Inf - бесконечная мощность
+*/
+$ENTRY SubtractEl {
+	(t.Power t.Name)() = ; 
+	(t.Power t.Name)((t.Power t.Name)e.MS) = e.MS;
+	(t.Power t.Name)((t.Power2 t.Name)e.MS) = <DecElPow <MyIfNotLess t.Power2 t.Power> t.Power2 t.Power t.Name> e.MS;
+	(t.Power t.Name)((t.Power2 t.Name2)e.MS) = (t.Power2 t.Name2)<SubtractEl (t.Power t.Name)(e.MS)>;
+}
+
+/*Вспомогательная функция для SubtractEl, чтобы не оставалось элементов вида (0 t.Name)*/
+DecElPow {
+	'T't.Pow t.SPow t.Name = (<MySub t.Pow t.SPow> t.Name);
+	'F't.Pow t.SPow t.Name = ;
+}
+
+/*Вставка элемента в мультимножество
+([MS])(t.Power t.term) => [MS]*/
+$ENTRY InsertInMultiSet {
+	(e.0 (t.Power t.1) e.1)(t.NewPower t.1) = e.0 (<MyAdd t.Power t.NewPower> t.1) e.1;
+	(e.1) t.1 = e.1 t.1;
+}
+
+/*Слияние мультимножеств
+([MS])([MS]) => [MS]*/
+$ENTRY MergeSets {
+()(e.2) = e.2;
+(t.1 e.1)(e.2) = <MergeSets (e.1)(<InsertInMultiSet (e.2)t.1>)>;
+}
+
+/*Симметрическая разность мультимножеств
+([MS])([MS]) => [MS]*/
+$ENTRY SymSubstMS {
+    (e.1)(e.2) = <MergeSets (<SubtractMS (e.1)(e.2)>)(<SubtractMS (e.2)(e.1)>)>;
+}
+
+/*Нахождение элемента с наибольшей мощностью в мультимножестве.
+Возвращается эта мощность
+([MS]) => MyNumber
+*/
+$ENTRY MaxElementPowerMS {
+	(e.MS), <MaxElementMS (e.MS)>:(t.Power t.Name) = t.Power; 
+}
+
+/*Нахождение элемента с наибольшей мощностью в мультимножестве.
+Возвращается весь элемент
+([MS]) => (MyNumber t.Name)*/
+$ENTRY MaxElementMS {
+	() = (<MyZero> AAA);
+	((t.Power t.Name) e.MS) = <MEMS1 'F' (t.Power t.Name) (t.Power t.Name) (e.MS)>;
+}
+
+/*Вспомогательная для MaxElementMS*/
+MEMS1 {
+	'F' t.Pred t.Curr () = t.Curr;
+	'T' t.Pred t.Curr () = t.Pred;
+	'F'(t.PowerPred t.NamePred) (t.PowerCurr t.NameCurr) ((t.PowerNext t.NameNext) e.MS) = 
+		<MEMS1 <MyIfNotLess t.PowerCurr t.PowerNext> (t.PowerCurr t.NameCurr) (t.PowerNext t.NameNext) (e.MS)>;
+	'T'(t.PowerPred t.NamePred) (t.PowerCurr t.NameCurr) ((t.PowerNext t.NameNext) e.MS) = 
+		<MEMS1 <MyIfNotLess t.PowerPred t.PowerNext> (t.PowerPred t.NamePred) (t.PowerNext t.NameNext) (e.MS)>;
+}
+
+/*Функция доступа, извлекающая имя элемента мультимножества*/
+$ENTRY ExtractElNameMS {
+	(t.Power t.Name) = t.Name;
+}
+
+
+/********************************************************************************************************
+
+				БЛОК ФУНКЦИЙ РАБОТЫ С ЗАРЫТЫМИ ИНДЕКСАМИ
+
+********************************************************************************************************/
+
+
+/* Cброс счетчика индексов до 0.
+e.Index ::= 'parx_ind'|'varx_ind'|'wevalx_ind' */
+$ENTRY RenewIndices {
+e.Index = <Br e.Index'=' 0>;
+}
+
+/*возвращается текущий хранимый индекс. Он подразумевается неиспользуемым!
+Хранимый индекс увеличивается на 1. 
+e.Index ::= 'parx_ind'|'varx_ind'|'wevalx_ind' */
+$ENTRY FreshIndex {
+e.Index, <Dg e.Index> : s.Val = <Add s.Val 1><Br e.Index'=' <Add s.Val 1>>;
+}
+
+/*Возвращается последний использованный индекс (предыдущий текущему хранимому).
+e.Index ::= 'parx_ind'|'varx_ind'|'wevalx_ind'*/
+$ENTRY CurrentIndex {
+e.Index, <Dg e.Index>:s.Val =  s.Val <Br e.Index'='s.Val>;
+}
+
+/********************************************************************************************************
+
+				БЛОК АРИФМЕТИКИ И ОБЩЕПРИМЕНИМЫХ ФУНКЦИЙ
+
+********************************************************************************************************/
+
+$ENTRY SetUnion {
+    (e.10 t.1 e.11)(e.20 t.1 e.21) = <SetUnion (e.10 e.11)(e.20 t.1 e.21)>;
+    (e.1)(e.2) = (e.1 e.2);
+}
+
+$ENTRY SetIntersect {
+    (e.1)(e.2) = (<SInt (e.1)(e.2)>);
+}
+
+SInt {
+    ()(e.2) = ;
+    (t.1 e.1)(e.2 t.1 e.3) = t.1 <SInt (e.1)(e.2 e.3)>;
+    (t.1 e.1)(e.2) = <SInt (e.1)(e.2)>;
+}
+
+$ENTRY SetMinus {
+    (e.1)() = (e.1);
+    (e.1 t.1 e.2)(t.1 e.3) = <SetMinus (e.1 e.2)(e.3)>;
+    (e.1)(t.1 e.2) = <SetMinus (e.1)(e.2)>;
+
+}
+
+/*Вставка элемента в множество
+[Term]([Term]^*) =>([Term]^+)
+*/
+$ENTRY SetInsert {
+	t.x (e.1 t.x e.2) = (e.1 t.x e.2);
+	t.x (e.Z) = (e.Z t.x);
+}
+
+
+/*коньюнкция на {'T','F'} !LAZY! {'T','N','F'}(3-значн Лукас)*/
+$ENTRY LogAnd {
+	'F's.1 = 'F';
+	s.1'F' = 'F';
+	'N's.1 = 'N';
+	s.1'N' = 'N';
+	'TT' = 'T';
+}
+
+/*конъюнкция */
+$ENTRY LogAndMerge {
+	(e.1)'F' (e.2)s.2 = ()'F';
+	(e.1)s.1 (e.2)'F' = ()'F';
+	()s.1 (e.2)s.2 = (e.2)<LogAnd s.1 s.2>;
+	(e.1)s.1 (e.2)s.2 = (e.1)<LogAnd s.1 s.2>;
+}
+	
+$ENTRY LogOrMerge {
+	()s.1 (e.2)s.2 = (e.2)<LogOr s.1 s.2>;
+	(e.1)s.1 (e.2)s.2 = (e.1)<LogOr s.1 s.2>;
+}
+/*дизъюнкция на {'T','F'} !LAZY! {'T','N','F'}(3-значн Лукас)*/
+$ENTRY LogOr {
+	s.1'T'  = 'T';
+	'T's.1  = 'T';
+	s.1'N'  = 'N';
+	'N's.1  = 'N';
+	'FF' = 'F';
+}
+
+/*Управляемое увеличение числа на 1.
+На входе и выходе - натуральное число Рефала.*/
+$ENTRY MyInc {
+ s.x = <Add s.x 1>;
+* (e.x) = ('S'e.x);
+}
+
+/*Управляемое порождение единицы.
+На выходе - натуральное число Рефала.*/
+$ENTRY MyOne {
+= 1;
+}
+
+/*Управляемое порождение нуля.
+На выходе - натуральное число Рефала.*/
+$ENTRY MyZero {
+= 0;
+}
+
+/*Выбор наибольшей из двух мощностей.
+[Card] --- натуральное число либо Inf.
+[Card][Card] => [Card]*/
+$ENTRY MyMax {
+	s.1 Inf = Inf;
+	Inf s.2 = Inf;
+	s.1 s.2, <Compare s.1 s.2>:'+' = s.1;
+	s.1 s.2 = s.2;
+}
+
+/*Выбор наименьшей из двух мощностей.
+[Card] --- натуральное число либо Inf.
+[Card][Card] => [Card]*/
+$ENTRY MyMin {
+	s.1 Inf = s.1;
+	Inf s.2 = s.2;
+	s.1 s.2, <Compare s.1 s.2>:'+' = s.2;
+	s.1 s.2 = s.1;
+}
+
+/* Сложение мощностей.
+[Card] --- натуральное число либо Inf.
+[Card][Card] => [Card] */
+$ENTRY MyAdd {
+	s.1 Inf = Inf;
+	Inf s.2 = Inf;
+	s.1 s.2 = <Add s.1 s.2>;
+}
+
+/*Вычитание мощностей (максимум до 0).
+[Card] --- натуральное число либо Inf.
+[Card][Card] => [Card] */
+$ENTRY MySub {
+/*! Случай ниже никогда не должен встречаться при применении функции. */
+	Inf Inf = <Recogn_Impossible>;
+	Inf s.2 = Inf;
+	s.1 Inf = 0;
+	s.1 s.2, <MyIfNotLess s.1 s.2>:'T' = <Sub s.1 s.2>;
+	s.1 s.2 = 0;
+}
+
+/*Сравнение двух мощностей либо целых чисел.
+[[Num]|Inf]_1 [[Num]|Inf]_2 => s.Log
+'T', если первый аргумент не меньше второго. */
+$ENTRY MyIfNotLess {
+	Inf s.2 = 'T';
+	s.1 s.1 = 'T';
+	s.1 Inf = 'F';
+	s.1 s.2 = <MytoBool <Compare s.1 s.2>>;
+	'-'s.1 s.2 = 'F';
+	'-'s.1 '-'s.1 = 'T';
+	'-'s.1 '-'s.2 = <MytoBool <Compare '-'s.1 '-'s.2>>;
+}
+
+/*Перевод результата сравнения в булево значение.*/
+$ENTRY MytoBool {
+	'+' = 'T';
+	0 = 'F';
+	'-' = 'F';
+}
+
+/*----------------------------------------------------------------------------------------------------------*/
+/*                       КОНЕЦ АРИФМЕТИКИ                                                                   */
+/*----------------------------------------------------------------------------------------------------------*/
+
+
+/* Базовая проверка, встречается ли терм в выражении.
+t.term e.Expr => s.Log */
+$ENTRY FindTerm {
+	t.name e.X t.name e.Y = 'T';
+	t.name e.Z = 'F';
+}
+
+/* Применение подстановки к выражению
+((assign (Var/Par/Weval s.Type t.Name) (e.Val))^*) e.Expr => e.Expr*/
+$ENTRY Substitute {
+/* 1. Подстановка завершена*/
+	(e.Subst) = ;
+/* 2. Обработка константы */
+	(e.Subst) s.1 e.Expr = s.1 <Substitute (e.Subst) e.Expr>;
+/* 3. Обработка скобок */
+	(e.Subst) ('*' e.InBr) e.OutBr = 
+		('*' <Substitute (e.Subst) e.InBr>) <Substitute (e.Subst) e.OutBr>;
+/*4. Вызов функции. Вариант лишь для одноместных функций*/
+	(e.Subst) (call e.functionname (args (arg e.arg)))e.Expr = 
+		(call e.functionname (args (arg <Substitute (e.Subst) e.arg>))) 
+		<Substitute (e.Subst) e.Expr>;
+/*5. Постановка в назначение. */
+	(e.Subst) (assign (e.VarorParId) (e.Val))e.Expr = 
+		(assign (e.VarorParId) (<Substitute (e.Subst)e.Val>)) <Substitute (e.Subst) e.Expr>;
+/*6. Обработка имени переменной либо параметра. Случай, когда подстановка для него есть.*/
+	(e.Subst1 (assign t.NameAndTypeInfo (e.Val)) e.Subst2) t.NameAndTypeInfo e.Expr = 
+		e.Val 
+		<Substitute (e.Subst1 (assign t.NameAndTypeInfo (e.Val)) e.Subst2) e.Expr>;		
+/*7. Обработка имени переменной либо параметра. Случай, когда подстановка для него отсутствует.*/
+	(e.Subst) t.Name e.Expr = t.Name <Substitute (e.Subst) e.Expr>;		
+}
+
+
+/* Поиск значения переменной или параметра в списке подстановок. Если не нашли, возвращаем искомый идентификатор.
+((assign (Var/Par/Weval s.Type t.Name) (e.Val))^*) (Var/Par/Weval s.Type  t.Name) => e.Val 
+*/
+$ENTRY FindVariableValue {
+	(e.SubsFirst (assign t.NameAndTypeInfo (e.value))e.SubsRest) t.NameAndTypeInfo = e.value;
+	(e.Subs) t.NameAndTypeInfo = t.NameAndTypeInfo;
+}
+
+/*Дано назначение вида --- переменная равна терму плюс еще чему-то. Проверить, не содержит ли оно явного противоречия.*/
+$ENTRY TermContradiction {
+    t.ParOrVar e.0 t.ParOrVar e.1 = 'T';
+    t.ParOrVar e.0 ('*' e.1) e.2 = <TermContradiction t.ParOrVar e.0 e.1 e.2>;
+    t.ParOrVar e.Z = 'F';
+}
+
+/*Примитивная проверка на совпадение двух имен функций.
+*/
+$ENTRY CompareCalls {
+(t.Name t.TimeStamp1) (t.Name t.TimeStamp2) = 'T';
+t.1 t.2 = 'F';
+}
+
+/*Поиск вершины в дереве по пути до неё от корня
+(Path)(Tree)=>(Node e.Node)
+Tree ::=(Node t.Status t.NodeName (e.NodeConf)[(Children Tree^+)])
+Path ::= (t.NodeName^+) --- от начала к концу путь от корня к вершине
+*/
+$ENTRY FindNode {
+/*1. Весь путь сверху вниз пройден, вершина найдена.*/
+	(t.NodeName)(Node t.Status t.NodeName e.Config) e.OtherNodes = (Node t.Status t.NodeName e.Config);
+/*2. Переход к очередному (более близкому) предку вершины.*/
+	(t.NodeName e.NextAncestors) (Node t.Status t.NodeName e.Config (Children e.Children)) e.OtherNodes
+		= <FindNode (e.NextAncestors) e.Children>;
+/*3. Вершины, являющиеся сиблингами предков, отбрасываются.*/
+	(e.Ancestors) (Node e.Data) e.OtherNodes
+		= <FindNode (e.Ancestors) e.OtherNodes>;
+}
+
+$ENTRY GenPath {
+	() = ;
+	(e.Parent s.ChildNum) = <GenPath (e.Parent)>(e.Parent s.ChildNum);
+}
+
+/*
+добавить в мультимножество e.MS1, содержащее (N t.par), N*(e.MS2), и удалить оттуда (N t.par)
+$ENTRY ReplaceInMultiSet
+{
+	()(e.MS2) = 'T';
+	((t.power t.par) e.MS1)(e.MS2) = <LogAnd <IfIncluded (e.MS2)(t.power t.par)><IfASubMultiSet (e.MS1)(e.MS2)>>;
+}
+
+NCopyMultiSet
+{
+	
+}*/
+
+Recogn_Impossible {
+	aaa = ;
+}

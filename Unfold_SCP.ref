@@ -1,0 +1,459 @@
+/****************************************************************************
+
+            ГЛАВНЫЙ МОДУЛЬ MSCP-A!
+            Содержит функцию, реализующую основной шаг суперкомпиляции
+            Unfold_SCP
+            Формат ее:
+            (e.Program)[NodeX]([PathOfX])[FullTree]> ==> [FullTree]
+
+****************************************************************************/
+$EXTERN prefal;
+/*из модуля basics.ref*/
+$EXTERN IfASubMultiSet, IfIncluded, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,SubtractEl,InsertInMultiSet,MergeSets,FindNode;
+/*из модуля basics.ref*/
+$EXTERN GenPath;
+/*из модуля basics.ref*/
+$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, FindTerm, RenewIndices, FreshIndex, MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
+/*из модуля drive.ref*/
+$EXTERN ClashLeft,GenerateNextLevel,PostProcessPRTC,FormatStack,AssignTimeStamps;
+/*из модуля stack.ref*/
+$EXTERN YieldDecomposition;
+/*из модуля residual.ref*/
+$EXTERN YieldProgramGeneration;
+/*из модуля generalize.ref*/
+$EXTERN CheckNode4Generalization,CheckNode4Equivalence,FoldStackIntoConf,HomeomorphicEmb; /*последняя для теста*/
+
+/* Файл, из которого читает этот модуль - test.ref, порождаемый batch-файлом MSCP из того файла, который ему подали на вход*/
+$ENTRY Go { =<Open 'w' 1 'trace_scp'><RenewAllIndices><ProutByStrings <PredMainStep <TransformEncoding ()() <prefal 'Test.ref'>>>><Close 1>;}
+
+/*$ENTRY Go {= <Open 'w' 1 'trace_scp'><Put 1 <HomeomorphicEmb ((par e 13 )'II'(par e 269 )'II'(par e 269 )(call (Mul1 14 )(args (arg ('*'(par e 269 ))'II'(par e 269 )))))
+                (par e 13 )'III'(par e 542 )'III'(par e 542 )'III'(par e 542 )(call (Mul1 15 )(args (arg ('*'(par e 542 ))'III'(par e 542 ))))>><Close 1>;
+            }
+
+/*Функция, обнуляющая все индексы.
+pari_ind - индексы параметров типа i
+wevali_ind - индексы строковых переменных типа i
+*/
+RenewAllIndices {
+=<RenewIndices 'varl_ind'><RenewIndices 'time_stamp'><RenewIndices 'pare_ind'><RenewIndices 'part_ind'><RenewIndices 'pars_ind'>
+<RenewIndices 'wevalt_ind'><RenewIndices 'wevale_ind'><RenewIndices 'wevals_ind'>;
+}
+ProutByStrings {
+     = ;
+    t.1 e.1 = <Prout t.1><Prout><ProutByStrings e.1>;
+}
+
+/*******************************  Функции перекодировки **************************************/
+/*Базовая функция перекодировки. 
+((t.fname((e.LHS)e.RHS)^*)^*)((e.InputExpression))e.ExpressionToTransform =>
+((t.fname((e.LHS)e.RHS)^*)^*)[Stack]
+*/
+TransformEncoding {
+/*1. Перекодировка завершена. Считаем, что входная точка лишь одна, и она помещается в вершину стека*/
+        (e.functions)(e.entrypoints) = (e.functions)(((assign (var l (0)) (e.entrypoints)) ));
+/*2. Игнорируем информацию о внешних функциях*/
+	(e.functions)(e.entrypoints)(EXTERN e.ext) e.rest  = <TransformEncoding (e.functions)(e.entrypoints) e.rest>;
+/*3. Игнорируем комментарии вне определений функций*/
+	(e.functions)(e.entrypoints)(Comment e.ext) e.rest = <TransformEncoding (e.functions)(e.entrypoints) e.rest>;
+/*4. Входную точку (единственную) запоминаем отдельно*/
+	(e.functions)(e.entrypoints)((ENTRY) t.fname ((e.lhs)'=' (Expression e.rhs))e.Comment) e.rest=
+		<TransformEncoding (e.functions)(e.entrypoints <ConvertEntry e.rhs>) e.rest>;
+/*5. Перекодировка определения функции*/
+	(e.functions)(e.entrypoints)((LOCAL) (e.fname) e.definition) e.rest =
+                                   <TransformEncoding (e.functions (e.fname (Sents <ConvertDef e.definition>)))(e.entrypoints) e.rest>;
+
+}
+
+/*Функция перевода кодировки для предложений в определении функции*/
+ConvertDef {
+	=;
+/*Комментарии в определениях функций удаляются*/
+	(Comment e.x) e.rest = <ConvertDef e.rest>;
+/*Левые и правые части помещаются за одни скобки и каждая перекодируется*/
+	((e.lhs) '=' (Expression e.rhs)) e.rest = ((<ConvertExpr e.lhs>) <ConvertExpr e.rhs>) <ConvertDef e.rest>;
+}
+
+/*Функция перевода кодировки для выражения в определении функции*/
+ConvertExpr {
+	=;
+/*1. перекодировка констант в себя*/
+	s.1 e.1 = s.1 <ConvertExpr e.1>;
+/*2. слово перекодируется просто в себя*/
+	(Word e.1)    e.2 = e.1 <ConvertExpr e.2>;
+/*3. перекодировка структурных скобок*/
+	(Bracket e.1) e.2 = ('*'<ConvertExpr e.1>) <ConvertExpr e.2>;
+/*4. перекодировка переменных разных типов*/
+	(Variable 's' t.name) e.2 = (var s t.name) <ConvertExpr e.2>; 
+	(Variable 'e' t.name) e.2 = (var e t.name) <ConvertExpr e.2>;
+	(Variable 't' t.name) e.2 = (var t t.name) <ConvertExpr e.2>;
+/*5. число перекодируется просто в себя*/
+	(MacroDigit s.digit)  e.2 = s.digit <ConvertExpr e.2>; 
+/*6. перекодировка вызова функции*/
+	(Call s.fname e.arg) e.rest = (call s.fname (args (arg <ConvertExpr e.arg>))) <ConvertExpr e.rest>; 
+/*7. в остальных случаях - сообщение об ошибке*/
+	e.z = <Prout 'The input language contains non-basic primitives.'> <Recogn_Impossible>;
+}
+
+/*Функция перевода кодировки для выражения, стоящего в вызове ENTRY
+Отличается от предыдущей тем, что "переменные", которые в нём указаны, суть параметры*/
+ConvertEntry {
+	=;
+	s.1 e.1 = s.1 <ConvertEntry e.1>;
+	(Word e.1)    e.2 = e.1 <ConvertEntry e.2>;
+	(Bracket e.1) e.2 = ('*'<ConvertEntry e.1>) <ConvertEntry e.2>;
+	(Variable 's' t.name) e.2 = (par s t.name) <ConvertEntry e.2>; 
+	(Variable 'e' t.name) e.2 = (par e t.name) <ConvertEntry e.2>;
+	(Variable 't' t.name) e.2 = (par t t.name) <ConvertEntry e.2>;
+	(MacroDigit s.digit)  e.2 = s.digit <ConvertEntry e.2>; 
+	(Call s.fname e.arg) e.rest = (call s.fname (args (arg <ConvertEntry e.arg>))) <ConvertEntry e.rest>; 
+	e.z = <Prout 'The input language contains non-basic primitives.'> <Recogn_Impossible>;
+}
+
+/*
+Декодирование результата работы UnfoldMain перед его выдачей
+символ * после открывающей скобки удаляется */
+Decode {
+	= ;
+	s.1 e.1 = s.1 <Decode e.1>;
+	('*' e.1) e.2 = (<Decode e.1>) <Decode e.2>;
+}
+/*******************************  Закончились функции перекодировки **************************************/
+
+/*
+	Производим декомпозицию входного вызова и запускаем главную функцию
+	(e.Program)(((assign (var l t.n ) (e.expr)))) => (Node Finished (e.NodeData)(Children [Node]^*))
+*/
+PredMainStep {
+(e.Program)(((assign (var l t.n )(e.expr))))=<YieldProgramGeneration <UnfoldMain 
+						(e.Program) 
+                                                (Node Undriven (0) 
+							(()()()<FormatStack <YieldDecomposition
+                                                        (((assign (var l t.n )(<AssignTimeStamps e.expr>))))>>)
+						)
+						((0))
+						(Node Undriven (0) ())
+						>
+                                                >;
+}
+
+/***********************************************************************************************************
+* Основной шаг 
+  <UnfoldMain (e.Program)[NodeX]([PathOfX])[FullTree]> ==> [FullTree]
+  [Node]::= (Node t.Status t.Name ((e.Restrictions)(e.ConfigEquations)(e.LetExpressions)(e.FullConfig)(e.Stack))
+  (Children [Node]^*))
+  t.Status::= Driven | Undriven | Ready | Finished | (Looped e.NodeName)|ReadyForGenCheck
+  [PathOfX]:: = ((0) [NodeName]^*)
+  [FullTree]::= (Node t.Status (0) (e.NodeData)(Children [Node]^*))
+************************************************************************************************************/
+
+UnfoldMain {
+	/*1. Корневая вершина не имеет потомков с непрогнанными конфигурациями*/
+	t.Program (Node Finished t.RootName e.ConfNode)(t.RootName) (Node t.Status t.RootName e.Config) 
+		= (Node Finished t.RootName e.ConfNode);
+	/*2. противоречие в корневой конфигурации*/
+	t.Program (Node Driven t.RootName (e.CurrConf) (Children )) (t.RootName) (Node t.Status t.RootName e.Config) 
+		= Contradiction;
+	/*3. противоречие в некорневой конфигурации - переходим к ее родителю*/
+	t.Program (Node Driven t.NodeName (e.CurrConf) (Children ))(e.Path t.NodeName) t.Tree 
+		= <UnfoldMain t.Program <FindNode (e.Path) <DeleteNode (e.Path t.NodeName) t.Tree>>
+				(e.Path)<DeleteNode (e.Path t.NodeName) t.Tree>>;
+	/*4. завершение вычислений в некорневой конфигурации - переходим к ее родителю*/
+	t.Program (Node Finished t.NodeName e.Conf)(e.Path t.NodeName) t.Tree 
+		= <UnfoldMain t.Program <FindNode (e.Path) t.Tree>
+				(e.Path) t.Tree>;
+	/*5. если узел прогнан и имеет единственный дочерний узел с вытолкнутым вызовом, заменяем его данными данные узла
+	*/
+	t.Program (Node ReadyForGenCheck t.Nodename ((e.Restrictions) e.Conf) (Children (Node Ready t.ChildNode ((Push) e.NewConf))))(e.Path) t.Tree 
+		= 
+		<UnfoldMain
+			t.Program 
+				<PrintIfTracing (Node Ready t.Nodename ((e.Restrictions) e.NewConf))>
+				(e.Path) 
+				<InsertNode (Node Ready t.Nodename ((e.Restrictions) e.NewConf))(e.Path)t.Tree>
+		>;
+        /*5. если узел прогнан и имеет единственный дочерний узел с вытолкнутым вызовом, заменяем его данными данные узла
+	*/
+	t.Program (Node ReadyForGenCheck t.Nodename ((e.Restrictions) e.Conf) (Children e.1 (Node Ready t.ChildNode ((Push) e.NewConf))e.2))(e.Path) t.Tree 
+		= 
+		<UnfoldMain
+			t.Program 
+				(Node ReadyForGenCheck t.Nodename ((e.Restrictions) e.Conf) (Children e.1 (Node Ready t.ChildNode ((Always) e.NewConf)) e.2))
+				(e.Path) 
+				t.Tree
+                >;
+	/*5а. если узел прогнан и имеет единственный дочерний узел, причем транзитный, его не обобщаем
+	*/
+/*	t.Program 
+        (Node ReadyForGenCheck t.Nodename ((e.Restrictions) e.Conf) 
+            (Children (Node Undriven t.ChildNode ((Always) e.NewConf)))
+        )
+        (e.Path) t.Tree 
+		= 
+		<UnfoldMain
+			t.Program 
+				<PrintIfTracing (Node Driven t.Nodename ((e.Restrictions) e.Conf)
+                                                        (Children (Node Undriven t.ChildNode ((Always) e.NewConf))))>
+				(e.Path) 
+				<InsertNode (Node Driven t.Nodename ((e.Restrictions) e.Conf) 
+                                    (Children (Node Undriven t.ChildNode ((Always) e.NewConf)))
+                                    )(e.Path)t.Tree
+                                >
+		>;*/
+	/*6. если узел прогнан или оказалось, что его конфигурация повторна):
+	a) вставляем прогонку в дерево путей
+	и
+	б) ищем ближайший непрогнанный узел
+	*/
+	t.Program (Node Driven e.Conf)(e.Path) t.Tree 
+		= 
+		<UnfoldMain
+			t.Program 
+			<ChooseUndrivenNode 
+				(Node Driven e.Conf)
+				(e.Path) 
+				<InsertNode (Node Driven e.Conf)(e.Path)t.Tree>
+			>
+		>;
+				
+	t.Program (Node (Looped e.LoopData) e.Conf)(e.Path) t.Tree 
+		= 
+		<UnfoldMain
+			t.Program 
+			<ChooseUndrivenNode 
+				(Node (Looped e.LoopData) e.Conf)
+				(e.Path) 
+				<InsertNode (Node (Looped e.LoopData) e.Conf)(e.Path)t.Tree>
+			>
+		>;
+	/*7. Проверяем, имеются ли конфигурации, повторяющие данную*/
+/*	t.Program (Node Undriven t.Name (e.Conf (e.FullConf)(e.Stack))
+		)(e.Path t.Last) t.Tree 
+		= <UnfoldMain t.Program 
+                        (Node 
+                            <CheckNode4Equivalence 
+                                (e.FullConf)
+                                (e.Path)
+                                t.Tree
+                            > 
+                            t.Name (e.Conf (e.FullConf)  (e.Stack))
+                        )
+                    (e.Path t.Last) t.Tree
+                    >;*/
+        t.Program (Node Undriven t.Name (e.Conf (e.FullConf)(e.Stack))
+		)(e.Path t.Last) t.Tree 
+		= <UnfoldMain t.Program 
+                        (Node Ready
+                            t.Name (e.Conf (e.FullConf)  (e.Stack))
+                        )
+                    (e.Path t.Last) t.Tree
+                    >;
+        /*8. Если узел транзитный, мы его не обобщаем*/
+/*	t.Program (Node ReadyForGenCheck t.Name ((Always)e.Conf (e.FullConf)(e.Stack))
+		)(e.Path t.Last) t.Tree 
+		= <UnfoldMain t.Program 
+                        (Node 
+                            Ready 
+                            t.Name ((Always)e.Conf (e.FullConf)  (e.Stack))
+                        )
+                    (e.Path t.Last) t.Tree
+                    >;
+*/
+	/*9. Проверяем, является ли узел _после_ прогонки кандидатом на обобщение*/
+	t.Program (Node ReadyForGenCheck t.Name (e.Conf (e.FullConf)(e.Stack))
+		e.Children)(e.Path t.Last) t.Tree 
+		= <UnfoldMain t.Program 
+                        (Node 
+                            <CheckNode4Generalization t.Name
+                                (e.FullConf)(e.Stack)
+                                (e.Path)
+                                t.Tree
+                            > 
+                            t.Name (e.Conf (e.FullConf)  (e.Stack))
+                        e.Children)
+                    (e.Path t.Last) t.Tree
+                    >;
+	/*10а. Узел обобщается --- вариант обобщения снизу (верхняя конфигурация есть MGU для нижней с точностью до переименовки)*/
+	t.Program (Node (Generalized (e.Name) (Looped e.LoopData)(e.GenFullConf)(e.GenStack)(e.Assignments)(e.Children)) 
+                    t.Name ((e.Restrs)e.Conf (e.FullConf)(e.Stack))
+		e.Children2)(e.Path t.Last) t.Tree 
+		= <UnfoldMain t.Program 
+                    <PrintIfTracing (Node Driven
+                        t.Name
+                        ((e.Restrs)()(Let e.Assignments In (e.GenFullConf))()())
+                        (Children
+                            (Node (Looped e.LoopData) (e.Name 0) (()()()
+                                (e.GenFullConf)(e.GenStack)))
+                        e.Children)
+                    )>
+                    (e.Path t.Last) t.Tree>;
+	/*10б. Узел обобщается --- обобщение в конфигурации предка (все прежние потомки конфигурации предка удаляются)*/
+	t.Program (Node (Generalized t.AncestorName (UpperGeneralization With (e.NewEquations))(e.GenFullConf)(e.GenStack)(e.Assignments)(e.Children)) 
+                    t.Name ((e.Restrs) e.Conf (e.FullConf)(e.Stack))
+		e.Children2)(e.Path t.Last) t.Tree, 
+		<FindNode (<GenPath t.AncestorName>) t.Tree> : 
+		(Node t.Status t.AncestorName ((e.AncRestrs)(e.Eq) e.Config) e.ChildData),
+		t.AncestorName : (e.AncestorList)
+		=	
+		<UnfoldMain t.Program
+                    <PrintIfTracing (Node Driven
+                        t.AncestorName
+                        ((e.AncRestrs)()(Let e.Assignments In (e.GenFullConf))()())
+                        (Children
+                            (Node Undriven (e.AncestorList 0) (()(e.NewEquations)()
+                                (e.GenFullConf)(e.GenStack)))
+                        e.Children)
+                    )>
+                    (<GenPath t.AncestorName>) t.Tree
+		>;
+	/*11. Если узел не прогнан, запускаем прогонку*/
+	/*На самом нижнем уровне самая левая переменная - вызов: производим прогонку для этого вызова */
+	t.Program (Node Ready t.Name (e.Conf 
+				(((assign (var l t.stackvar) ((call t.fdata (args (arg e.Arg))))) e.LowerLevel) 
+				e.OtherStack)
+			)
+		)(e.Path) t.Tree, t.fdata : (t.fname t.timestamp) 
+		= <UnfoldMain t.Program 
+                    <PrintIfTracing (Node ReadyForGenCheck t.Name (e.Conf 
+				(((assign (var l t.stackvar) ((call t.fdata (args (arg e.Arg))))) e.LowerLevel) 
+				e.OtherStack))
+                    (Children
+                        <YieldDriving 
+                            <FindFunctionDef t.Program t.fdata> 
+                            t.fname 
+                            (e.Arg) 
+                            t.Name 
+                            (e.Conf (((assign (var l t.stackvar) ((call t.fdata (args (arg e.Arg))))) e.LowerLevel) e.OtherStack))
+                        >
+                    )
+                    )>
+                    (e.Path) t.Tree
+                >;
+
+	/*12. вычисления в узле завершены - вставляем данный узел в дерево с пометкой Finished*/
+	t.Program (Node t.Status t.Name (e.Conf (((assign (var l t.stackvarname)(e.Val))))))(e.Path) t.Tree 
+		= <UnfoldMain 
+			t.Program 
+			(Node Finished t.Name (e.Conf (((assign (var l t.stackvarname)(e.Val))))))
+			(e.Path) 
+			<PrintIfTracing <InsertNode (Node Finished t.Name (e.Conf (((assign (var l t.stackvarname)(e.Val))))))
+			(e.Path)t.Tree>>
+		>;
+}
+
+
+/*Поиск определения функции, которую планируется выполнить
+([Program])[FunctionName] => ([e.FirstPattern])([e.FirstRightHandSide])((([Pattern])[RightHandSide])^*)
+*/
+FindFunctionDef {
+	(e.ProgramBefore (t.fname (Sents ((e.LHS)e.RHS) e.RestDefs)) e.ProgramAfter) (t.fname t.timestamp) =
+		(e.LHS)(e.RHS)(e.RestDefs);
+}
+
+/*Запуск процесса прогонки
+([Pattern])([RightHandSide])([FunctionDefinition]^*) [FunctionName] 
+([FunctionArgument]) 
+[NodeName] ((e.Restrictions)(e.LetExpressions)(e.ConfigEquations)(e.FullConfig)(e.Stack)) =>
+[Tree]^+ (набор вершин - дочек [NodeName])
+*/
+YieldDriving {
+(e.LHS)(e.RHS)(e.RestDefs) t.fname (e.Config) t.NodeName ((e.Restrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)(e.Stack)) 
+    = <GenerateNextLevel t.NodeName (0) 
+				((e.Restrictions)(e.ConfigEquations)()(e.FullConfig)(e.Stack))
+				(t.fname (Try e.Config)(SubsTo e.RHS)(e.RestDefs))
+				<PostProcessPRTC ()()
+					<ClashLeft <Putout 1 'New Clash:'><Put 1((e.ConfigEquations (Desired))()()(((e.Config) to (e.LHS))(Delayed ))('T'))><Putout 1>>
+				>
+			>;
+}
+
+
+/*Удаление вершины из дерева по ее пути
+[path][tree]^+ =>[tree]
+[path]::=([nodename]+) (порядок - от корня к вершине, путь до которой указан)
+[tree]::=(Node [NodeStatus] [NodeName] (([restriction]^*|Always|Push) ([equation]^*)([LetExpressions]^*)([FullConfiguration])([Stack]))
+(Children [tree]^*))
+*/
+DeleteNode {
+/*1. От пути осталось просто имя вершины - мы на нужном уровне в дереве, удаляем ее*/
+	(t.NodeName) e.NodesBefore (Node t.Status t.NodeName e.Config) e.NodesAfter = e.NodesBefore e.NodesAfter;
+/*2. На каждом новом этапе ищем предка удаляемой вершины, оставляем всех его соседей как есть, и переходим к его потомкам*/
+	(t.AncestorNodeName e.NextAncestors) e.NodesBefore (Node t.Status t.AncestorNodeName e.Config (Children e.Children)) e.NodesAfter
+		= e.NodesBefore (Node t.Status t.AncestorNodeName e.Config (Children <DeleteNode (e.NextAncestors) e.Children>)) e.NodesAfter;
+}
+
+/*Вставка вершины с обновленными данными в дерево
+[NewNode][path][Tree]^+ =>[tree]
+[path] - позиция, на которую вставляется [NewNode]. Считаем, что она в дереве [Tree] всегда существует. 
+*/
+InsertNode {
+/*1. От пути осталось просто имя вершины - мы на нужном уровне в дереве, вставляем новые данные*/
+	(Node e.NewConf)(t.NodeName) e.NodesBefore(Node t.Status t.NodeName e.Config) e.NodesAfter = e.NodesBefore (Node e.NewConf) e.NodesAfter;
+/*2. На каждом новом этапе ищем предка изменяемой вершины, оставляем всех его соседей как есть, и переходим к его потомкам*/
+	(Node e.NewConf)(t.AncestorNodeName e.NextAncestors) e.NodesBefore(Node t.Status t.AncestorNodeName e.Config (Children e.Children)) e.NodesAfter
+		= e.NodesBefore (Node t.Status t.AncestorNodeName e.Config (Children <InsertNode (Node e.NewConf)(e.NextAncestors) e.Children>)) e.NodesAfter;
+}
+
+/*Выбор дочернего узла с незавершенной разверткой.
+Выбираем из списка дочерних вершин данной вершины те, которые имеют статус Driven, Undriven или Ready
+Если таких вершин нет, вставляем данную вершину в дерево с пометкой Finished
+Формат функции
+[ParentNode]([ChildNode]^*)[path][tree]=>[Node][path][tree]
+*/
+ChooseSuccessorNode {
+/*1. У данной вершины нет дочерних вершин, в которых не доделана развертка -> вершина помечается как Finished*/
+	(Node t.Status e.Config)()(e.Path)(e.Tree) =
+		(Node Finished e.Config)(e.Path)<InsertNode (Node Finished e.Config)(e.Path)(e.Tree)>;
+/*2. Очередной дочерний узел имеет статус завершенного. Рассматриваем другие*/
+	(Node t.Status e.Config)((Node Finished e.Child) e.OtherChildren)(e.Path)(e.Tree) =
+		<ChooseSuccessorNode (Node t.Status e.Config)(e.OtherChildren)(e.Path)(e.Tree)>;
+/*3. Очередной дочерний узел имеет статус зацикленного. Рассматриваем другие*/
+	(Node t.Status e.Config)((Node (Looped e.Name) e.Child) e.OtherChildren)(e.Path)(e.Tree) =
+		<ChooseSuccessorNode (Node t.Status e.Config)(e.OtherChildren)(e.Path)(e.Tree)>;
+/*4. Нашелся искомый дочерний узел - возвращаем его и путь до него*/
+	(Node t.Status e.Config)((Node t.ChildStatus t.ChildName e.ChildConfig) e.OtherChildren)(e.Path)(e.Tree) =
+		(Node t.ChildStatus t.ChildName e.ChildConfig)(e.Path t.ChildName)(e.Tree);
+}
+
+/*Выбор ближайшего соседа со статусом незавершенной прогонки (если такой сосед есть)
+Формат функции
+(Node e.Node)(e.Path)(e.Tree)=>[nodeData][path][tree]
+*/
+ChooseUndrivenNode {
+/*1. нашлась вершина, на которой не запускалась прогонка и проверка на повторность состояния - возвращаем ее*/
+	(Node Undriven e.Node)(e.Path)(e.Tree)=(Node Undriven e.Node)(e.Path)(e.Tree);
+/*2. нашлась вершина, не нуждающаяся в проверке на повторность состояния, но на которой не было прогонки*/
+	(Node Ready e.Node)(e.Path)(e.Tree)=(Node Ready e.Node)(e.Path)(e.Tree);
+/*3. Алгоритм дошёл до корня дерева и пометил его как Finished. Возвращаем корень*/
+	(Node Finished e.Node)(t.NodeName)(e.Tree)=(Node Finished e.Node)(t.NodeName)(e.Tree);
+/*4. Если вершина имеет статус Finished, и это не корень, продолжаем поиск от ее родителя*/
+	(Node Finished e.Node)(e.Path t.NodeName)(e.Tree)=<ChooseUndrivenNode <FindNode (e.Path)(e.Tree)>(e.Path)(e.Tree)>;
+/*5. Если вершина имеет статус (Looped t.ToNode), и это не корень, продолжаем поиск от ее родителя*/
+	(Node (Looped e.Name) e.Node)(e.Path t.NodeName)(e.Tree)=<ChooseUndrivenNode <FindNode (e.Path)(e.Tree)>(e.Path)(e.Tree)>;
+/*6. Если вершина имеет статус Driven, выбираем ее дочку со статусом Driven, Undriven или Ready и продолжаем поиск от нее
+если же таких дочек нет, то эта вершина получает статус Finished*/
+	(Node Driven e.Node (Children e.Children))(e.Path)(e.Tree)=
+		<ChooseUndrivenNode <ChooseSuccessorNode (Node Driven e.Node (Children e.Children))(e.Children)(e.Path)(e.Tree)>>;
+}
+
+/*Известно имя вершины-предка и путь от корня до ее потомка. Построить путь до вершины предка
+([path])t.NodeName => ([path])
+*/
+FindAncestorPath {
+    (e.PathBefore t.NodeName e.PathAfter)t.NodeName = (e.PathBefore t.NodeName);
+}
+
+/*Для выхода по невозможному отождествлению*/
+Recogn_Impossible {
+aaa = ;
+}
+
+/*Для трассировщика*/
+AAA {
+e.1 = e.1;
+}
+
+/*Для трассировщика*/
+PrintIfTracing {
+*	e.1 = e.1;
+	e.1 = <Put 1 e.1>;
+}

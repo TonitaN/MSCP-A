@@ -1,0 +1,355 @@
+/*-----------------------------------------------------------------------------------------
+                              ФУНКЦИИ ПРЕОБРАЗОВАНИЯ СТЕКОВ
+
+(Слоистый) стек LAYERED_STACK имеет вид STACKLEVEL_NON_DECOMPOSED + STACKLEVEL_DECOMPOSED* + UPPERLEVEL_DECOMPOSED
+либо UPPERLEVEL_DECOMPOSED
+
+где STACKLEVEL::=((assign (var l t.Name)(e.Data)_^+)
+UPPERLEVEL::=((assign (var l t.Name)(e.Data)))
+STACK_ASSIGNMENT ::= (assign (var l t.Name)(e.Data))
+
+e.Data DECOMPOSED --- либо (call t.functionMame), либо выражение, не содержащее вызовов функций.
+e.Data может содержать (не в аргументе вызова) несколько вхождений переменных типа l с более верхнего уровня.
+
+NON_DECOMPOSED --- произвольно
+
+В текущей версии MSCP используется ленивая семантика вычислений.
+
+Функции, доступные из модуля:
+YieldDecomposition --- декомпозиция выражения в слоистый стек.
+(((assign (var l t.n )(e.Expr)))) => (LAYERED_STACK)
+
+DecompAfterIndefinite --- перестановка в верхнем уровне стека вызова, требующего декомпозиции, на первую позицию.
+(call NAME (args (arg EXPR)))(LAYERED_STACK)(var l NAME FUN_NAME)e.CONFIG => (LAYERED_STACK)
+
+Lazy_Stack_Substitution --- подстановка переменных верхнего уровня стека в следующий за ним (с последующей декомпозицией).
+STACK_LEVEL (LAYERED_STACK) => LAYERED_STACK
+-------------------------------------------------------------------------------------------*/
+
+/*из basics.ref*/
+$EXTERN RenewIndices, FreshIndex, CurrentIndex,CompareCalls;
+/*из basics.ref*/
+$EXTERN Substitute;
+/*из UnfoldSCP.ref*/
+$EXTERN FormatStack;
+
+/*Дано выражение, присвоенное переменной вершины стека. Построить стек.
+(((assign (var l t.n )(e.Expr)))) => (LAYERED_STACK)
+*/
+$ENTRY YieldDecomposition {
+/*1. Вершина содержит единственный вызов => возвращаем всё как есть*/
+(((assign (var l t.n )((call t.fname (e.Var)))))) = (((assign (var l t.n )((call t.fname (e.Var))))));
+
+/*2. Иначе производим ленивую декомпозицию стека, выделяя вызовы*/
+(((assign (var l t.n )(e.expr)))) = <RenewIndices 'varl_ind'><One_Step_Decomp_Lazy   (()) 
+				<Flat_Decomposition 
+					(Outer)()<ArgFormat (assign (var l t.n )(e.expr))>
+				>
+			>;
+}
+
+/* Функция формата:
+(assign (var l t.stackvar) (e.Expression)) => ((assign (var l t.stackvar) ())e.Expression)
+для подачи на Flat_Decomposition*/
+ArgFormat {
+	(assign (var l t.stackvar) (e.Var)) = ((assign (var l t.stackvar) ())e.Var); 
+}
+
+/*Функция обработки результата одношаговой декомпозиции в ленивой семантике.
+
+(LAYERED_STACK) STACKLEVEL_NON_DECOMPOSED STACK_ASSIGNMENT_DECOMPOSED => (LAYERED_STACK)
+*/
+One_Step_Decomp_Lazy {
+/*1. Элемент слоя стека вычислен, и это не вызов --- кладем его в стек */
+((e.ThisStackLevel) e.UpperLevels)()(assign (var l t.stackvar) (e.Var)) = 
+		(((assign (var l t.stackvar) (e.Var)) e.ThisStackLevel) e.UpperLevels);
+
+/*2. Элемент слоя декомпозирован с порождением нового слоя --- добавляем новый слой в стек*/
+	((e.ThisStackLevel) e.UpperLevels)((assign (var l t.newstackvar) (e.FirstStackElement)) e.LocalStack)
+	(assign (var l t.stackvar) (e.Var)) = 
+			(
+			((assign (var l t.newstackvar) (e.FirstStackElement))e.LocalStack)
+			((assign (var l t.stackvar) (e.Var)) e.ThisStackLevel) 
+			e.UpperLevels);
+	
+}
+
+/*Выделение 1 уровня функциональных вызовов из данной стековой переменной
+ Вход --- (s.DecompositionSort)()((assign (var l t.stackvar) ())e.Expr) 
+ s.DecompositionSort::= Outer | Inner
+ Выход --- STACK_LEVEL_NON_DECOMPOSED STACK_ASSIGNMENT_DECOMPOSED
+ */
+Flat_Decomposition {
+/*1. Прошлись по всей длине выражения, сформировали новый уровень стека, состоящий лишь из одного вызова ->
+во вновь порожденный уровень помещаем аргумент этого вызова, а в декомпозицию текущего --- сам вызов
+Флаг Outer подчеркивает, что это не результат работы функции при разборе выражений со скобками, а именно результат разбора всего выражения*/
+	(Outer)((assign (var l t.stackvarnew) ((call t.fname (args (arg e.Val))))))
+	((assign (var l t.stackvar) ((var l t.stackvarnew2)))) 
+		= ((assign (var l t.stackvarnew)(e.Val)))
+		(assign (var l t.stackvar) ((call t.fname (args (arg (var l t.stackvarnew))))));
+		
+/*2. Прошлись по всей длине выражения, сформировали новый уровень стека -> возвращаем его и декомпозицию текущей переменной стека*/
+	(s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.Val))) = (e.StackLevel)(assign (var l t.stackvar) (e.Val));
+/*3.  Первый нерассмотренный элемент выражения - значения переменной есть символ; записываем его в рассмотренные и продолжаем */
+	(s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.Val))s.x e.Input) = 
+		<Flat_Decomposition (s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.Val s.x)) e.Input)>;
+/*4. Первый нерассмотренный элемент выражения - значения переменной есть параметр; записываем его в рассмотренные и продолжаем */
+	(s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.Val))(par e.par) e.Input) = 
+		<Flat_Decomposition (s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.Val (par e.par))) e.Input)>;
+/*5. Нерассмотренная часть выражения разбивается скобками: обрабатываем то, что в скобках, присоединяем к 
+рассмотренной части и продолжаем работать с тем, что за скобками */
+	(s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.BeforeBr))('*' e.InBr)e.AfterBr) = 
+		<Flat_Decomposition 
+			(Inner)<Fl_Dec_Bracket_Proc
+				(e.BeforeBr)			
+				<Flat_Decomposition 
+					(Inner) 
+					(e.StackLevel)
+					((assign (var l t.stackvar) ()) e.InBr) 
+				> 
+				(e.AfterBr)
+			> 
+		>;
+/*6.  Первым в нерассмотренной части выражения стоит вызов функции, причем раньше вызовов не было 
+ Вводим новую стековую переменную и записываем туда этот вызов */
+	(s.DecSort)()((assign (var l t.stackvar) (e.Val)) (call e.call) e.Expr) = 
+		<Flat_Decomposition 
+			(s.DecSort)
+			((assign (var l <FreshIndex 'varl_ind'>) ((call e.call))))
+			((assign (var l t.stackvar) (e.Val (var l <CurrentIndex 'varl_ind'>))) e.Expr) 
+		>;
+		
+/*7. Первым в нерассмотренной части выражения стоит вызов функции --- общий случай
+Проверяем, не было ли таких вызовов раньше, с учетом этого меняем стек и продолжаем разбор*/
+	(s.DecSort)(e.StackLevel)((assign (var l t.stackvar) (e.Val)) (call e.call) e.Expr) = 
+		<Flat_Decomposition 
+			(s.DecSort)
+			<CheckRepeatedCalls 
+				()
+				(e.StackLevel) 
+				((assign (var l t.stackvar) (e.Val)) (call e.call) e.Expr) 
+			> 
+		>;
+}
+
+/* Вписываем результат обработки функцией Flat_Decomposition содержимого скобок в значение (уже вычисленную часть) разбираемой переменной.
+Функция формата.
+*/
+Fl_Dec_Bracket_Proc {
+	(e.BeforeBr)(e.StackLevel)(assign (var l t.stackvar) (e.InBr))(e.AfterBr) = 
+		(e.StackLevel)((assign (var l t.stackvar) (e.BeforeBr ('*'e.InBr))) e.AfterBr);
+}
+
+
+
+/*----------------------------------------------------------------------------------------------------------------------------------
+* Вход --- (STACK_LEVEL_NONDEC)(STACK_LEVEL_NONDEC)((assign (var l t.stackvar) (e.Val)) t.call e.Expr)
+* Выход --- (STACK_LEVEL_NONDEC)((assign (var l t.stackvar) (e.VarMod)) e.Expr)
+t.call --- вызов, равные которому ищем */
+CheckRepeatedCalls {
+/*1. Прошли весь имеющийся слой стека и идентичных вызовов не нашли -> помещаем в слой новый вызов и заменяем его именем 
+ в разбираемом значении переменной */
+	(e.CallsChecked)()((assign (var l t.stackvar) (e.Val)) t.call e.Expr) = 
+		((assign (var l <FreshIndex 'varl_ind'>) (t.call)) e.CallsChecked )
+		((assign (var l t.stackvar) (e.Val(var l <CurrentIndex 'varl_ind'>))) e.Expr);
+/*2. Иначе сравниваем вызов в слое стека с вызовом в разбираемой переменной. Если совпали, ничего в новый слой не
+добавляем, а просто возвращаем в декомпозицию переменную вместо вызова*/
+	(e.CallsChecked)
+	((assign (var l t.stackvarrepeated) (t.ExistingCall))e.CallsTail)
+	((assign (var l t.stackvar) (e.Val)) t.call e.Expr), 
+	<CompareCalls (t.ExistingCall)t.call> : 'T' = 
+		(e.CallsChecked (assign (var l t.stackvar) (t.ExistingCall)) e.CallsTail)
+		(assign (var l t.stackvar)(e.Val (var l t.stackvarrepeated)) e.Expr);
+/*3. Если не совпали, проверяем дальше*/
+	(e.CallsChecked)
+	(t.OtherCallAssignment e.CallsTail)
+	e.ToCheck = 
+		<CheckRepeatedCalls (e.CallsChecked t.OtherCallAssignment)(e.CallsTail) e.ToCheck>;	
+}
+
+
+/*Перестановка данного вызова (равных ему) в самое начало слоя стека, если они есть.
+(t.call)(e.NonCheckedStackAssignments)(e.CheckedStackAssignments) => STACK_LEVEL;
+*/
+TestIndefinite {
+/*1. Все вызовы проверены*/
+	((call e.Indefinite))()(e.Checked) = (e.Checked);
+/*2. Проверяем аргумент очередного вызова такой же функции --- если он совпадает с нашим,
+помещаем проверяемый вызов в самое начало списка вызовов на данном слое*/
+        ((call t.fname1 t.Indefinite))((assign (var l t.Varname) ((call t.fname2 t.Arg))) e.NotChecked)(e.Checked),
+        <CompareCalls t.fname1 t.fname2> : 'T'
+	 = 
+		((assign (var l t.Varname) ((call t.fname2 t.Arg))) e.Checked e.NotChecked);
+/*3. Иначе проверяем следующую функцию*/
+	((call e.Indefinite))((assign (var l t.Varname) ((call e.X)))e.NotChecked)(e.Checked) =
+		 <TestIndefinite ((call e.Indefinite))(e.NotChecked)(e.Checked (assign (var l t.Varname) ((call e.X))))>;
+}
+
+
+/* Функция, переставляющая вызов, породивший неопределённость, в начало списка вызовов на нижнем стековом уровне
+ Вход ((call t.fname (args (arg e.Arg))))(LAYERED_STACK), выход (LAYERED_STACK) */
+FormattoCmpWithIndefinite {
+/*1. Если на нижнем стековом уровне лишь один вызов - переставлять нечего, сразу возвращаем всё как было */
+	(e.Indefinite)(((assign e.X))e.OtherStack) = (((assign e.X))e.OtherStack);
+/*2. В противном случае проверяем все вызовы нижнего уровня по очереди, чтобы переставить неопределённый в начало */
+	(e.Indefinite)((e.LowerStack)e.OtherStack) = 
+		(<TestIndefinite (e.Indefinite)(e.LowerStack)()> e.OtherStack);
+}
+
+/*t.call --- это полноценный вызов в аргументе e.Config функции t.fname, который нужно выталкивать следующим.
+Переформируем стек, так чтобы t.call стоял в начале нижнего слоя.
+(call NAME (args (arg EXPR)))(LAYERED_STACK)(var l NAME FUN_NAME)e.CONFIG => (LAYERED_STACK)
+*/
+$ENTRY DecompAfterIndefinite {
+(t.call)((e.CurrStackLevel)e.Stack)(var l t.stackvar t.fname)e.Config =
+<FormattoCmpWithIndefinite (t.call)
+					<One_Step_Decomp_Lazy 
+						<IfASingleCall  ((e.CurrStackLevel)e.Stack)(var l t.stackvar t.fname)e.Config>
+					>
+				>
+}
+
+/*
+ Вспомогательная функция, запрещающая чрезмерно поспешную декомпозицию
+ Вход (LAYERED_STACK)(var l t.stackvar t.fname)e.Value, где (var l t.stackvar) имеет значение (call t.fname (args (arg e.Value))) 
+ выход (LAYERED_STACK)(e.NewStackLevel)(assign (var l t.stackvar) (e.NewValue)) (входная для One_Step_Decomp_Lazy)*/
+IfASingleCall {
+/*1. Если аргумент исходного вызова представляет собой лишь один вызов и плоская декомпозиция не нужна, помещаем его на новый уровень стека,
+ а исходный вызов - в конец */
+	(e.Stack)(var l (0) t.fname)(call e.Expr) = 
+			(e.Stack)((assign (var l <FreshIndex 'varl_ind'>) ((call e.Expr))))
+						(assign (var l (0))
+							((call t.fname (args (arg (var l <CurrentIndex 'varl_ind'>))))));
+	(e.Stack)(var l t.stackvar t.fname)(call e.Expr) =
+			(e.Stack)((assign (var l <FreshIndex 'varl_ind'>) ((call e.Expr))))
+						(assign (var l t.stackvar)
+							((call t.fname (args (arg (var l <CurrentIndex 'varl_ind'>))))));
+/*2. Иначе производим плоскую декомпозицию аргумента */
+	(e.Stack)(var l (0) t.fname)e.OldVal = 
+		<X><ReturntoFunction (e.Stack)(var l (0) t.fname)
+						<Flat_Decomposition (Outer)()
+						<ArgFormat (assign (var l <FreshIndex 'varl_ind'>)(e.OldVal))>>>;
+	(e.Stack)(var l t.stackvar t.fname)e.OldVal =
+		<ReturntoFunction (e.Stack)(var l t.stackvar t.fname)
+						<Flat_Decomposition (Outer)()
+						<ArgFormat (assign (var l <FreshIndex 'varl_ind'>)(e.OldVal))>>>;
+}
+
+/* Вспомогательная форматирующая функция, помещающая вызов функции, аргумент которой прошел декомпозицию, 
+обратно в стек.
+ Вход (LAYERED_STACK)(var l t.stackvar t.fname)STACK_LEVEL (assign (var l t.stackvar2) (e.Val))
+ Выход (LAYERED_STACK)STACK_LEVEL(assign (var l t.stackvar2) (e.Val)) (входная для One_Step_Decomp_Lazy)*/
+ReturntoFunction {
+	((e.LowerLevel)e.OtherStack)(var l t.stackvar t.fname)(e.NewLevel)(assign (var l t.stackvar2) (e.Val))=
+		(()((assign (var l t.stackvar)((call t.fname (args (arg (var l t.stackvar2))))))e.LowerLevel)e.OtherStack)(e.NewLevel)
+		(assign (var l t.stackvar2) (e.Val));
+	
+	((e.LowerLevel)(e.ParentStack)e.OtherStack)(var l t.stackvar t.fname)(e.NewLevel)(assign (var l t.stackvar2) (e.Val))=
+		(
+			(e.LowerLevel)
+			((assign (var l t.stackvar)((call t.fname (args (arg (var l t.stackvar2))))))e.ParentStack)
+			e.OtherStack
+		)
+		(e.NewLevel)
+		(assign (var l t.stackvar2) (e.Val));
+}
+
+/*Подстановка стековых переменных в слоистый стек на следующий за ними уровень
+STACK_LEVEL (LAYERED_STACK) => LAYERED_STACK 
+*/
+$ENTRY Lazy_Stack_Substitution {
+/* 1. Если в стеке, который подставляем, ничего не осталось, а на верхнем уровне вызов - просто возвращаем верхний уровень*/
+	()(((assign (var l t.stackvar)((call e.call)))))= 
+		(((assign (var l t.stackvar)((call e.call)))));
+/* 2. Если в стеке, который подставляем, ничего не осталось, а на верхнем уровне 1 элемент (не чистый вызов) - производим его декомпозицию*/
+	()(((assign (var l t.stackvar)(e.Val))))= 
+		<One_Step_Decomp_Lazy (())
+		<Flat_Decomposition (Outer)() <ArgFormat (assign (var l t.stackvar) (e.Val))>>>;
+
+/*
+ 3. Общий случай. Если в стеке, который подставляем, ничего не осталось - удаляем его и возвращаем результат подстановки
+ Предложения 1 и 2 нужны, чтобы отделить случаи, когда корневая переменная содержит вызовы, от тех, когда она содержит
+ результат вычисления всей программы*/
+	()(e.OtherStack)= (e.OtherStack);
+
+/*4. Иначе подставляем очередную переменную данного уровня в следующий за ним*/
+	((assign (var l t.stackvar)(e.Var))e.LowerStack)(((assign (var l t.stackvar2)(e.VarVal))e.ParentStack)e.OtherStack)
+	= <Lazy_Stack_Substitution 
+		(e.LowerStack)
+		(((assign (var l t.stackvar2) (<Substitute ((assign (var l t.stackvar)(e.Var))) e.VarVal>)) 
+		e.ParentStack)e.OtherStack)>;
+}
+
+
+/*----------------------------------------------------------------------------------------------------------*/
+
+/*                                   ПОКА НЕ НУЖНЫЕ ФУНКЦИИ                                                 */
+
+/*----------------------------------------------------------------------------------------------------------*/
+
+/*Функция декомпозиции стека при вычислениях по значению*/
+Global_Decomp
+{
+	(())()(assign (var l t.stackvar) (e.Var)) = (((assign (var l t.stackvar) (e.Var))));
+*Если вычислен весь вектор на этом уровне, последний --- вызов, записываем его на (новый) нижний уровень и возвр стек
+*	(()(e.ParentLevel) e.UpperLevels)()(assign (var l t.stackvar) (call e.Arg)) = 
+*		(((assign (var l t.stackvar) (call e.Arg))) (e.ParentLevel) e.UpperLevels);
+*Если вычислен весь вектор на этом уровне, записываем последнее значение на новый (нижний) уровень и возвр стек
+	(()(e.ParentLevel) e.UpperLevels)()(assign (var l t.stackvar) (e.Var)) = 
+		(((assign (var l t.stackvar) (e.Var))) (e.ParentLevel) e.UpperLevels);
+* ((<Substitute_Stack_Variable (assign (var l t.stackvar) (e.Var))e.ParentLevel>) e.UpperLevels);
+*В альтернативе ниже  t.newstackvar1 всегда равно t.newstackvar; разные индексы нужны во избежание появления цикла в Рефале
+*Если подстановка в последний вызов состоит из единственной переменной, содержащей один вызов, 
+*производим плоскую декомпозицию этого вызова и откат
+	((e.ThisStackLevel) e.UpperLevels)((assign (var l t.newstackvar) 
+	(call e.FunName (args (arg e.Val)))))(assign (var l t.stackvar) ((var l t.newstackvar1))) =		
+			<Rollback_Process (e.FunName) <Flat_Decomposition (Outer)()((assign (var l t.stackvar) ()) e.Val) e.Val> 
+			((e.ThisStackLevel) e.UpperLevels)>;
+*Элемент слоя стека вычислен, и это не вызов --- сохраняем результат и возвращаем стек
+((e.ThisStackLevel)(e.ParentLevel) e.UpperLevels)()(assign (var l t.stackvar) (e.Var)) = 
+		(((assign (var l t.stackvar) (e.Var)) e.ThisStackLevel)( e.ParentLevel) e.UpperLevels);
+*В общем случае, т.е. элемент слоя стека был разложен в композицию, содержащую не только один функц вызов
+* (не обязательно помимо него были еще функц вызовы --- возможно, константы или скобки)
+* --- производим декомпозицию самого первого функц вызова в разложении и создаем новый стековый слой
+	((e.ThisStackLevel) e.UpperLevels)((assign (var l t.newstackvar) (e.FirstStackElement)) e.LocalStack)(assign (var l t.stackvar) (e.Var)) = 
+		<Global_Decomp
+			((e.LocalStack)((assign (var l t.stackvar) (e.Var)) e.ThisStackLevel) e.UpperLevels)
+			<Flat_Decomposition (Outer)()((assign (var l t.newstackvar) ())(e.FirstStackElement))(e.FirstStackElement)>
+		> ;
+}
+
+*Входной формат
+*(Имя функции, внутри которой стоит раскладываемое выражение)(стек, получаемый после разложения)(значение раскл переменной после разложения)(прежний стек)
+*(s.FunName)()(assign (var l t.stackvar)(e.Var))(e.Stack)
+*Выходной формат
+*(e.Stack)
+Rollback_Process
+{
+*Если раскладывать дальше нечего (аргумент вызова есть константа) --- возвращаем стек с вызовом на этой константе 
+	(e.FunctionName)()(assign (var l t.stackvar) (e.Var))((e.ThisStackLevel) e.UpperLevels) =
+		(((assign (var l t.stackvar) ((call e.FunctionName (args (arg e.Var))))) e.ThisStackLevel) e.UpperLevels);
+*Иначе продолжаем декомпозицию
+	(e.FunctionName)((assign (var l t.newstackvar) (e.FirstStackElement))e.NewStack)(assign (var l t.stackvar) (e.Var))((e.ThisStackLevel) e.UpperLevels) =
+*	<Global_Decomp 
+	<One_Step_Decomp_Lazy 
+		((e.NewStack)((assign (var l t.stackvar) ((call e.FunctionName (args (arg e.Var))))) e.ThisStackLevel) e.UpperLevels)
+		<Flat_Decomposition (Outer)()((assign (var l t.newstackvar) ())e.FirstStackElement)e.FirstStackElement>
+	>;
+
+}
+
+Recogn_Impossible {
+aaa = ;
+}
+
+/*Дан слоистый стек. */
+YieldPopCall {
+(t.call)((e.CurrStackLevel)e.Stack)(var l t.stackvar t.fname)e.Config =
+                                <FormattoCmpWithIndefinite (t.call)
+					<One_Step_Decomp_Lazy 
+						<IfASingleCall  ((e.CurrStackLevel)e.Stack)(var l t.stackvar t.fname)e.Config>
+					>
+				>;
+}
+
+X { = ;}

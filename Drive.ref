@@ -1,0 +1,2105 @@
+
+/*
+Модуль функций прогонки.
+
+Основные функции модуля:
+
+SolveEquations --- функция запуска решения уравнений в словах в конфигурации прогонки.
+([PRTC]) => ([PRTC])
+PostProcessPRTC --- обработка конфигурации после прогонки (и решения уравнений).
+(((e.equations)(e.restrictions)(e.assignments))^*)(e.MultisetOfCalls)
+([NonClashPRTC])^*
+=>
+(((e.equations)(e.restrictions)(e.assignments))^*)(s.Log)((call [functioncall])|\Lambda
+
+GenerateNextLevel --- построение очередного узла в дереве вычислений программы по результатам прогонки.
+Формат:
+[ParentNodeName](t.NumberOfGeneratedChildren) 
+((e.ParentRestrictions)(e.ParentEquations)(e.ParentLets)(e.ParentFullConfiguration)[ParentStack])
+([PatternFunctionName] (Try e.ArgumentOfPatternFunction)(SubstTo e.CurrentPatternOfRightSide)(e.OtherPatterns))
+(((e.equations)(e.restrictions)(e.assignments))^*)
+(s.Log)
+((call [functioncall])|\Lambda)
+=>
+(Node Undriven|Ready [NewNodeName] ((Push|Always|[restriction]^+) (Equations) ()([FullConfig])[Stack]))^*
+
+ClashLeft --- функция прогонки слева (она же запускает функцию прогонки справа, не видимую вне модуля).
+((e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log))=>((e.equations)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))^*
+
+Структуры данных в прогонке.
+
+[ClassicEquality] ::= (AreEqual ((s.IfIsChanged)[EqualityExpr])((s.IfIsChanged)[EqualityExpr]))
+[SimpleCallEqualities] ::= (AreEqual ((s.IfIsChanged)(call [DataExpr]))((s.IfIsChanged) [EqualityExpr])) [SimpleCallEqualities]| 
+
+[Stack]::= ([StackLevel]^+)
+[StackLevel]::= ((assign (var l t.varname)([StackExpression])))
+[StackExpression] :: = | ('*' [StackExpression]) [StackExpression] | s.X [StackExpression] 
+			| (par s.partype e.parname) [StackExpression] | (var l t.stackvarname) [StackExpression]
+
+[NonClashPRTC]::= Zero |
+	([ClassicEquality]^* (Desired [SimpleCallEqualities])
+	((assign (par t.type t.name) ([DataExpr])))^*)
+	((assign (var t.type t.name) ([DataExpr])))^*)
+	((Delayed))
+	(s.Log)
+
+[PRTC]::= Zero |
+	([ClassicEquality]^* (Desired [SimpleCallEqualities])
+	((assign (par t.type t.name) ([DataExpr])))^*)
+	((assign (var t.type t.name) ([DataExpr])))^*)
+	([Clash]^* (Delayed [Clash]^*))
+	(s.Log)
+[Clash]::= (([DataExpr]) to ([PatternExpr]))
+[DataExpr]::= |('*' [DataExpr])[DataExpr]|[Symbol][DataExpr]|(par t.type t.name)[DataExpr]|(call t.fname (args (arg [DataExpr])))
+[PatternExpr]::= |('*' [PatternExpr])[PatternExpr]|[Symbol][PatternExpr]|(var t.type t.name)[PatternExpr]
+[EqualityExpr]::= |('*' [EqualityExpr])[EqualityExpr]|[Symbol][EqualityExpr]|
+	(par t.type t.name)[EqualityExpr]|(weval t.type t.name)[EqualityExpr]|(var t.type t.name)[EqualityExpr]|
+	(call t.fname (args (arg [DataExpr]))) --- это не ошибка, внутри вызова может быть только [DataExpr]
+*/
+
+
+$EXTERN prefal;
+/*из модуля basics.ref*/
+$EXTERN MaxElementPowerMS, ExtractElNameMS, MaxElementMS, ReplaceMSEl,IfASubMultiSet,Substitute,FindVariableValue;
+/*из модуля basics.ref*/
+$EXTERN IfIncluded, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,SubtractEl,InsertInMultiSet,MergeSets;
+/*из модуля basics.ref*/
+$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, FindTerm, RenewIndices, FreshIndex, CurrentIndex,MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
+/*из модуля WordEquations.ref*/
+$EXTERN IfProcessible, IterateProcessQWEs, IterateWESimpleTransforms, SplitEquationLefts, SubstituteInWE, MergeParametrizations, ParametrizeExpression, PlaceTwoSidesInEquality;
+/*из модуля stack.ref*/
+$EXTERN YieldDecomposition, Lazy_Stack_Substitution,DecompAfterIndefinite;
+/*из модуля generalize.ref*/
+$EXTERN FoldStackIntoConf;
+
+
+/*Проверка, может ли выражение оказаться пустым.
+возвращает вызов, от которого зависит ответ на вопрос, является ли оно пустым
+Вход
+((call [args])|\Lambda)[stack_expression]
+Выход
+((call [args])|\Lambda)(s.Log), s.Log='N'|'F'
+*/
+IfMayBeEmpty {
+	(e.Indefinite) = (e.Indefinite)('N');
+	()(call e.call) e.z = <IfMayBeEmpty ((call e.call)) e.z>;
+	(e.Indefinite)(call e.call) e.z = <IfMayBeEmpty (e.Indefinite)e.z>;
+	(e.Indefinite)(var l e.var) e.z = <IfMayBeEmpty (e.Indefinite)e.z>;
+	(e.Indefinite)(par s.patrype e.parname) e.z = <IfMayBeEmpty (e.Indefinite)e.z>;
+	(e.Indefinite)e.Z = (e.Indefinite)('F');
+}
+
+/*главная функция для решения уравнений в словах
+На входе
+([PRTC]) (может быть, что PRTC = Zero)
+На выходе
+([PRTC])
+*/
+$ENTRY SolveEquations {
+	((e.equations)(e.restrictions)(e.assignments)(e.Clashes)('F'))= <PostProcessEquations (Zero)>;
+	((e.equations)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))
+	 = <PostProcessEquations <SubstituteWevals <IterateProcessQWEs <IterateWESimpleTransforms <SplitEquationLefts 
+		 ()<ParametrizeAllEq ()()<EquationsFromClashes (e.assignments) e.Clashes> e.equations>
+		 (e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log)
+	>>>>>;
+}
+
+/*Заключительная обработка конфигураций прогонки после решения уравнений*/
+PostProcessEquations {
+	 = ;
+	(Zero)e.Confs = <PostProcessEquations e.Confs>;
+/*	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))e.Confs = 
+		((<DeleteMultipleEqs () e.equations> (Desired <DeleteMultipleEqs () e.calls>))(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))
+		<PostProcessEquations e.Confs>;*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))e.Confs = 
+		((<DeleteMultipleEqs () e.equations> (Desired <DeleteMultipleEqs () e.calls>))(e.restrictions)(e.assignments)((Delayed ))(s.Log))
+		<PostProcessEquations e.Confs>;
+		
+}
+
+/*
+Удаление повторных уравнений из блока уравнений
+([ClassicEquality]^*)[ClassicEquality]^* 
+=>[ClassicEquality]^* 
+*/
+DeleteMultipleEqs {
+	(e.PrEq) = e.PrEq;
+	(e.PrEq)(AreEqual t.LHS t.LHS)e.OtherEqs= 
+		<DeleteMultipleEqs
+			(e.PrEq)
+			e.OtherEqs
+		>;
+	(e.PrEq)(AreEqual (e.LHS)(e.RHS))e.OtherEqs= 
+		<DeleteMultipleEqs
+			(<CheckNewEq4Multiplicity ()(e.PrEq)(AreEqual (e.LHS)(e.RHS))>)
+			e.OtherEqs
+		>;
+}
+
+/*Проверка, входит ли данное уравнение в заданный блок уравнений
+([CheckedClassicEquality]^*)([NonCheckedClassicEquality]^*)[ClassicEquality] =>
+[CheckedClassicEquality]^*
+*/
+CheckNewEq4Multiplicity {
+	(e.PrEq)() t.Equation = e.PrEq t.Equation;	
+	(e.PrEq)((AreEqual t.LHS t.RHS) e.NPEq) (AreEqual t.LHS t.RHS) = e.PrEq (AreEqual t.LHS t.RHS) e.NPEq;
+	(e.PrEq)((AreEqual ((s.Log1)e.LHS) ((s.Log2)t.RHS)) e.NPEq) (AreEqual ((s.Log3)e.LHS) ((s.Log4)t.RHS)) 
+		= e.PrEq (AreEqual ((s.Log1)e.LHS) ((s.Log2)t.RHS)) e.NPEq;
+	(e.PrEq)((AreEqual t.RHS t.LHS) e.NPEq) (AreEqual t.LHS t.RHS) = e.PrEq (AreEqual t.LHS t.RHS) e.NPEq;
+	(e.PrEq)(t.Equation2 e.NPEq) t.Equation = <CheckNewEq4Multiplicity (e.PrEq t.Equation2)(e.NPEq) t.Equation>;
+}
+
+/**************************************************************************************
+
+                     ОБЩИЕ ФУНКЦИИ ПРОГОНКИ
+ 
+**************************************************************************************/
+
+/*
+Выбор функции для выталкивания (если это необходимо) по результатам попытки сопоставления. 
+Вход:
+(((e.equations)(e.restrictions)(e.assignments))^*)(e.MultisetOfCalls)
+([NonClashPRTC])^*
+Выход:
+(((e.equations)(e.restrictions)(e.assignments))^*)(s.Log)((call [functioncall])|\Lambda)
+s.Log = 'F' => невозможность сопоставления во всех ветвях прогонки
+s.Log = 'N' => имеется вызов функции, без уточнения которого нельзя установить, успешно ли сопоставление
+s.Log = 'T' => сопоставление возможно (независимо от значений вызовов функций)
+*/
+$ENTRY PostProcessPRTC {
+/*1. Все возможные конфигурации прогонки содержат противоречия => сопоставление невозможно*/
+	()() = ()('F')();
+/*2. Ни в одной конфигурации прогонки нет неопределенностей, и есть хотя бы одна конфигурация, не содержащая противоречий
+	=> безотносительное сопоставление возможно*/
+	(e.ProcessedConfs)() = (e.ProcessedConfs)('T')();
+/*3. Мультимножество вызовов, порождающих противоречия, непусто => нужно найти в нем элемент с наибольшим весом*/
+	(e.ProcessedConfs)(e.MSCalls) = ()('N')(<ExtractElNameMS <MaxElementMS (e.MSCalls)>>);
+
+/*4. Блок Desired текущей конфигурации пуст => она помещается в конфигурации, не содержащие неопределенностей*/
+	(e.ProcessedConfs)(e.MSCalls)
+		((e.equations(Desired ))(e.restrictions)(e.assignments)((Delayed ))(s.Log))e.Confs = 
+			<PostProcessPRTC (((e.equations)(e.restrictions)(e.assignments)) e.ProcessedConfs)(e.MSCalls)e.Confs>; 
+
+/*5. Противоречивая конфигурация просто удаляется*/
+	(e.ProcessedConfs)(e.MSCalls)
+		(Zero)e.Confs =
+			<PostProcessPRTC (e.ProcessedConfs)(e.MSCalls) e.Confs>; 
+
+/*6. В случае непустого блока Desired текущей конфигурации все вызовы, на которые в нем имеются сужения, добавляются в мультимножество неопределенностей*/
+	(e.ProcessedConfs)(e.MSCalls)
+		((e.equations(Desired e.calls))(e.restrictions)(e.assignments)((Delayed ))(s.Log))e.Confs =
+			<PostProcessPRTC (e.ProcessedConfs)<AddCallsToMS (e.calls)(e.MSCalls)> e.Confs>; 
+}
+
+/*Добавление вызова из блока Desired во взвешенный список вызовов, неопределенных в данном сопоставлении
+Вызов, уточняемый явно, имеет больший вес, чем вызов, вовлечённый только в уравнения 
+(уточняемый только неявно)
+Вход
+((call [functioncall])^*)((t.Weight (call [functioncall]))^*)
+выход
+((t.Weight (call [functioncall]))^*)
+*/
+AddCallsToMS {
+	()(e.MSCalls)=(e.MSCalls);
+	((AreEqual ((s.Log1) t.call)((s.Log2) (weval e e.Z))) e.calls)(e.MSCalls) =
+		<AddCallsToMS (e.calls)(<InsertInMultiSet (e.MSCalls)(<MyOne> t.call)>)>;
+	((AreEqual ((s.Log1) t.call)((s.Log2) e.Val)) e.calls)(e.MSCalls) =
+		<AddCallsToMS (e.calls)(<InsertInMultiSet (e.MSCalls)(<MyInc <MyOne>> t.call)>)>;
+}
+
+/*Прогонка одной строки определения функции закончена
+Обрабатываем ее результат
+Вход
+[ParentNodeName](t.NumberOfGeneratedChildren) 
+((e.ParentRestrictions)(e.ParentEquations)(e.ParentLets)(e.ParentFullConfiguration)[ParentStack])
+([PatternFunctionName] (Try e.ArgumentOfPatternFunction)(SubstTo e.CurrentPatternOfRightSide)(e.OtherPatterns))
+(((e.equations)(e.restrictions)(e.assignments))^*)
+(s.Log)
+((call [functioncall])|\Lambda)
+Выход
+(Node Undriven|Ready [NewNodeName] ((Push|Always|[restriction]^+) (Equations) (e.ParentLets)([FullConfig])[Stack]))^*
+*/
+$ENTRY GenerateNextLevel {
+/*1. Ни одной дочки порождено не было, предложений в выражении больше не осталось*/
+	t.NodeName (0) (e.NodeConfig)(t.fname (Try e.CurrConfig)(SubsTo e.CurrentRightSide)())()('F')() = ;
+
+/*2. На последнем сопоставлении получено противоречие, предложений в выражении больше не осталось*/
+	t.NodeName t.NodeChildren (e.NodeConfig)(e.PatternConfig())()('F')() = ;
+
+/*3. Все ветви узла порождены, предложений в выражении больше не осталось*/
+	t.NodeName t.NodeChildren (e.NodeConfig)(e.PatternConfig())()('T')() = ;
+
+/*4. Все ветви узла порождены, но остались еще предложения в определении функции*/
+	t.NodeName t.NodeChildren ((e.Restrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)(e.Stack))
+		(t.fname (Try e.CurrConfig)(SubsTo e.CurrentRightSide)(((e.LHSDef)e.RHSDef)e.OtherDefinitions))()(s.Log)() 
+			= <GenerateNextLevel t.NodeName t.NodeChildren 
+				((e.Restrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)(e.Stack))
+				(t.fname (Try e.CurrConfig)(SubsTo e.RHSDef)(e.OtherDefinitions))
+				<PostProcessPRTC 
+					()()<Putout 1 'New Clash:'><ClashLeft <Put 1((e.ConfigEquations (Desired))()()(((e.CurrConfig) to (e.LHSDef))(Delayed ))('T'))>><Putout 1>
+				>
+			>;
+/*5. Выяснилось, что необходимо выталкивать вызов функции --- порождаем единственную
+дочку узла дерева, содержащую конфигурацию, где этот вызов активен
+Данная конфигурация затем заменит собой конфигурацию родительского узла*/
+	t.NodeName (t.NodeChildren) ((e.Restrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)
+		(((assign (var l t.stackvar)(e.ConfigAgain)) e.CurrStackLevel)e.Stack))
+		(t.fname (Try e.CurrConfig)(SubsTo e.RHSDef)(e.OtherDefinitions))()('N')(t.call) = 
+			(Node	Ready 
+				<GenerateNewName t.NodeName (t.NodeChildren)>
+				((Push)
+				(e.ConfigEquations)(e.Lets)
+				(e.FullConfig)
+                                <DecompAfterIndefinite
+				(t.call)
+				((e.CurrStackLevel)e.Stack)(var l t.stackvar (t.fname <FreshIndex 'time_stamp'>))e.CurrConfig
+				>)
+			);
+
+/*6. Порождается ветвь, не содержащая уравнений или рестрикций - 
+остальные предложения определения функции можно не проверять*/
+	t.NodeName (t.NodeChildren) ((e.OldRestrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)
+	(e.Stack))
+	(t.fname (Try e.CurrConfig)(SubsTo e.CurrentRightSide)(e.OtherDefinitions))
+		((()()(e.assignments))e.OtherConfigs)('T')() = 
+			(Node   Undriven
+				<GenerateNewName t.NodeName (t.NodeChildren)> 
+				((Always)
+				(e.ConfigEquations)
+				(e.Lets)
+				<StackTransform (<Substitute (e.assignments)<AssignTimeStamps e.CurrentRightSide>>)(e.Stack)>)
+			);
+                        
+/*7. Порождается очередная ветвь*/
+	t.NodeName (t.NodeChildren) ((e.OldRestrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)
+	(e.Stack))
+	(t.fname (Try e.CurrConfig)(SubsTo e.CurrentRightSide)(e.OtherDefinitions))
+		(((e.equations)(e.restrictions)(e.assignments))e.OtherConfigs)('T')()
+        = 
+			(Node   Undriven
+				<GenerateNewName t.NodeName (t.NodeChildren)> 
+				((e.restrictions)
+				(<MergeEquations (e.equations)
+                                    <IterateSubstituteInEqualities ()(e.restrictions)(e.ConfigEquations)>
+                                >)
+				()
+				<StackTransform 
+					(<Substitute (e.assignments)<AssignTimeStamps e.CurrentRightSide>>)
+					(<SubstituteInStack ()(e.restrictions) e.Stack>)>)
+			)
+			<GenerateNextLevel t.NodeName 
+				(<MyAdd t.NodeChildren 1>) 
+                                ((e.OldRestrictions)(e.ConfigEquations)(e.Lets)(e.FullConfig)(e.Stack))                                
+				(t.fname (Try e.CurrConfig)(SubsTo e.CurrentRightSide)(e.OtherDefinitions))
+				(e.OtherConfigs)('T')()
+			>;
+}
+
+/*Подстановка новых назначений в стек
+((assign (var l e.name)(e.Val))^*)(e.restrictions)e.Stack 
+(e.Stack - без самых внешних скобок, просто уровни друг за другом)
+*/
+SubstituteInStack {
+	(e.ThisLevelProcessed)(e.restrictions)() = (e.ThisLevelProcessed);
+	(e.ThisLevelProcessed)(e.restrictions)()e.OtherLevels = (e.ThisLevelProcessed)<SubstituteInStack ()(e.restrictions)e.OtherLevels>;
+	(e.ThisLevelProcessed)(e.restrictions)((assign (var l e.stackvarname)(e.Val))e.ThisLevel)e.OtherLevels =
+		<SubstituteInStack 
+			(e.ThisLevelProcessed (assign (var l e.stackvarname)(<IterateSubstitute ()(e.restrictions)(e.Val)>)))
+			(e.restrictions)(e.ThisLevel)e.OtherLevels
+		>;
+}
+
+MergeEquations {
+        (e.Eqs1 (AreEqual ((s.Log1) e.1)((s.Log2) e.2)) e.Eqs2) 
+        e.Eqs11 (AreEqual ((s.Log3) e.1)((s.Log4) e.2)) e.Eqs12 =
+                <MergeEquations (e.Eqs1 e.Eqs2) e.Eqs11 (AreEqual ((s.Log1) e.1)((s.Log2) e.2)) e.Eqs12>;
+        (e.Eqs1 (AreEqual ((s.Log1) e.1)((s.Log2) e.2)) e.Eqs2) 
+        e.Eqs11 (AreEqual ((s.Log3) e.2)((s.Log4) e.1)) e.Eqs12 =
+                <MergeEquations (e.Eqs1 e.Eqs2) e.Eqs11 (AreEqual ((s.Log1) e.1)((s.Log2) e.2)) e.Eqs12>;
+        (e.Eqs) 
+        e.Eqs11 (AreEqual ((s.Log1) e.1)((s.Log2) e.1)) e.Eqs12 = <MergeEquations (e.Eqs) e.Eqs11 e.Eqs12>;
+        (e.Eqs1) e.Eqs2 = e.Eqs1 e.Eqs2;
+}
+
+$ENTRY IterateSubstitute {
+    t.Val(e.subs)t.Val, t.Val : (e.Val) = e.Val;  
+    (e.1)(e.subs)(e.2) = <IterateSubstitute (e.2)(e.subs)(<Substitute (e.subs) e.2>)>;
+}
+
+$ENTRY IterateSubstituteInEqualities{
+   t.Val(e.subs)t.Val, t.Val : (e.Val) = e.Val;  
+   (e.1)(e.subs)(e.2) = <IterateSubstituteInEqualities (e.2)(e.subs)(<SubstituteInEqualities (e.subs) e.2>)>;
+}
+
+/*Дано выражение, возможно, содержащее вызовы функций.
+Пронумеровать эти вызовы по времени их порождения, если они ещё не пронумерованы.*/
+$ENTRY AssignTimeStamps {
+     = ;
+    ('*' e.0) e.1 = ('*' <AssignTimeStamps e.0>) <AssignTimeStamps e.1>;
+    (call t.fdata (args (arg e.Arg))) e.Other,
+    t.fdata : (t.fname t.timestamp) = 
+        (call t.fdata (args (arg <AssignTimeStamps e.Arg>))) <AssignTimeStamps e.Other>;
+    (call t.fname (args (arg e.Arg))) e.Other = 
+        (call (t.fname <FreshIndex 'time_stamp'>) (args (arg <AssignTimeStamps e.Arg>))) <AssignTimeStamps e.Other>;
+    t.1 e.1 = t.1 <AssignTimeStamps e.1>;
+}
+
+/*Преобразование стека при передаче в верхнюю его переменную нового значения
+Вход
+([expression])[Stack]
+Выход
+([FullConfiguration])[Stack]
+*/
+StackTransform {
+/*верхняя переменная стека - его низ; производим декомпозицию подстановки*/
+	(e.NewVal)(((assign (var l t.stackvar) (e.Val2)))) =
+        <FormatStack <YieldDecomposition  (((assign (var l t.stackvar) (e.NewVal))))>>;
+
+/*в противном случае подставляем верхний уровень стека в следующий за ним*/
+	(e.NewVal)(((assign (var l t.stackvar) (e.Val2)) e.LowerLevel) e.OtherStack) =
+		<FormatStack <StackTransformAux <Lazy_Stack_Substitution 
+			((assign (var l t.stackvar) (e.NewVal)) e.LowerLevel)
+			(e.OtherStack)
+			>>>;
+}
+
+/*Вспомогательная функция форматирования, извлекающая из стека информацию об
+общей конфигурации, на основе которой построен стек
+([Stack]) => ([DataExpr])([Stack])
+*/
+$ENTRY FormatStack {
+(e.Stack) = (<FoldStackIntoConf e.Stack>)(e.Stack);
+}
+
+/*Продолжение преобразования стека --- уже без замены на новое значение
+Результат --- стек, либо не содержащий вызовов, либо содержащий в нижней переменной вызов
+Вход
+[Stack]
+Выход
+[Stack]
+*/
+StackTransformAux {
+/*получен вызов в стеке - остановка подстановок*/
+    (((assign (var l t.stackvar) ((call e.call)))e.LowerLevel)e.OtherLevels)
+	    =(((assign (var l t.stackvar) ((call e.call)))e.LowerLevel)e.OtherLevels);
+/*дошли до низа стека - декомпозиция*/
+    (((assign (var l t.stackvar) (e.Val))))=
+        <YieldDecomposition  (((assign (var l t.stackvar) (e.Val))))>;
+/*иначе продолжаем подстановки*/
+    (((assign (var l t.stackvar) (e.Val))e.LowerLevel)e.OtherLevels)=		
+                    <StackTransformAux 
+                        <Lazy_Stack_Substitution 
+			((assign (var l t.stackvar) (e.Val)) e.LowerLevel)
+			(e.OtherLevels)
+			>
+                    >;
+}
+
+/*Вновь порожденной дочерней ветви узла, в котором осуществляется прогонка, присваивается имя
+Вход
+([NodeName])([MyNumber])
+выход
+([NodeName])
+*/
+GenerateNewName {
+	(e.NodeName)(e.NodeChildren) = (e.NodeName e.NodeChildren);
+}
+
+/*******************************************************************************************
+ФУНКЦИИ ПЕРЕВОДА УРАВНЕНИЙ КОНФИГУРАЦИИ В ЧИСТЫЕ УРАВНЕНИЯ В СЛОВАХ
+И ОБРАТНО
+********************************************************************************************/
+
+/*Если остались неразрешённые "clash" (Delayed clashes), переводим их в форму уравнений
+(e.assignments)((s.Log)([expression]) to ([pattern]))^* =>
+[ClassicEquations]^*
+*/
+EquationsFromClashes {
+    (e.assignments) = ;
+    (e.assignments)((s.Log)(e.1) to (e.2)) e.Z = (AreEqual (('F')e.1)(('F')<Substitute (e.assignments)e.2>))<EquationsFromClashes (e.assignments) e.Z>;
+}
+
+/* Объединяем заготовки для уравнений в словах блоков desired calls и блоков equalities
+(e.ParameterList)(e.ParametrizedEqs) e.Equalities(Desired e.Equalities) 
+=> (e.ParameterList)(e.ParametrizedEqs)(Desired e.Equalities)*/
+ParametrizeAllEq {
+	(e.ParameterList)(e.ParametrizedEqs)e.AllEqs(Desired e.CallEqs) = 
+			<PlaceEqsInDesired (e.ParametrizedEqs)<ParametrizeAllEq1 (e.ParameterList)()e.AllEqs e.CallEqs>>;
+}
+
+ParametrizeAllEq1 {
+	(e.ParameterList)(e.ParametrizedEqs) = (e.ParameterList)(e.ParametrizedEqs);
+	(e.ParameterList)(e.ParametrizedEqs)(AreEqual ((s.Log1) e.Expr1)((s.Log2) e.Expr2))e.Equations = 
+		<ParametrizeAllEq1 
+			<MergeParametrizations (e.ParametrizedEqs)
+						<ParametrizeExpression (e.ParameterList)(<MyZero>)()()e.Expr1>
+						(e.Expr2)
+			>
+			e.Equations>;
+}
+
+/*Функция форматирования для ParametrizeAllEqs*/
+PlaceEqsInDesired {
+	(e.OtherEqs)(e.ParValList)(e.SimpleEqs) = (e.ParValList)(e.OtherEqs e.SimpleEqs) (Desired);
+}
+
+/*Подстановка данных вместо переменных типа weval во все конфигурации, порожденные этапом прогонки*/
+SubstituteWevals {
+	 = ;
+	(Zero) e.Other = <SubstituteWevals e.Other>;
+	(e.Conf) e.Other = <SubstituteWevalsConf (<DeleteExcessiveAssignments ()e.Conf>)><SubstituteWevals e.Other>;
+}
+
+/*
+Избыточные назначения - те, которые описывают свойства переменных, не задействованных в описании рефал-данных,
+либо в выражениях, связывающих разные переменные между собой.
+Например,
+(assign (weval e x)((call e.call))), причём (weval e x) больше нигде не встречается.
+
+Функция удаляет такие назначения из конфигурации уравнений в словах.
+Формат
+({(assign (weval e.var)(e.refaldata))|(assign (weval e.var)(e.MultisetOfWevals)(e.WevalExpression))}^*)
+((AreEqual ((s.Log)(e.Multiset)(e.WevalExpression))((s.Log)(e.Multiset)(e.WevalExpression)))^*)
+({(assign (weval e.var)(e.refaldata))|(assign (weval e.var)(e.MultisetOfWevals)(e.WevalExpression))}^*)
+(Desired e.calls)(e.Restrictions)(e.Assignments)((Delayed))(s.Log)
+=>
+((AreEqual ((s.Log)(e.Multiset)(e.WevalExpression))((s.Log)(e.Multiset)(e.WevalExpression)))^*)
+({(assign (weval e.var)(e.refaldata))|(assign (weval e.var)(e.MultisetOfWevals)(e.WevalExpression))}^*)
+(Desired e.calls)(e.Restrictions)(e.Assignments)((Delayed))(s.Log)
+*/
+DeleteExcessiveAssignments {
+    (e.ProcessedAssignments)(e.NewEquations)()e.Config=
+            (e.NewEquations)(e.ProcessedAssignments)e.Config;
+	    
+    (e.ProcessedAssignments)(e.NewEquations)((assign (weval e e.weval) t.refaldata) e.ParameterList)e.Config=
+        <DelExcAssgn1 
+		(assign (weval e e.weval) t.refaldata)
+		<IfVarIsInEq (weval e e.weval) e.NewEquations e.ProcessedAssignments e.ParameterList>
+		(e.ProcessedAssignments)(e.NewEquations)(e.ParameterList)e.Config
+	>;
+
+    (e.ProcessedAssignments)(e.NewEquations)((assign (weval s.type e.weval) ((var s.type e.refaldata))) e.ParameterList)e.Config=
+        <DelExcAssgn1 
+		(assign (weval s.type e.weval) ((var s.type e.refaldata)))
+		<IfVarIsInEq (weval s.type e.weval) e.NewEquations e.ProcessedAssignments e.ParameterList>
+		(e.ProcessedAssignments)(e.NewEquations)(e.ParameterList)e.Config
+	>;
+
+    (e.ProcessedAssignments)(e.NewEquations)((assign (weval s.type e.weval) ((par s.type e.refaldata))) e.ParameterList)e.Config=
+        <DelExcAssgn1 
+		(assign (weval s.type e.weval) ((par s.type e.refaldata)))
+		<IfVarIsInEq (weval s.type e.weval) e.NewEquations e.ProcessedAssignments e.ParameterList>
+		(e.ProcessedAssignments)(e.NewEquations)(e.ParameterList)e.Config
+	>;
+
+    (e.ProcessedAssignments)(e.NewEquations)((assign t.weval e.other) e.ParameterList)e.Config=
+        <DeleteExcessiveAssignments (e.ProcessedAssignments(assign t.weval e.other))(e.NewEquations)( e.ParameterList)e.Config>;
+}
+
+/*Вспомогательная для DeleteExcessiveAssignments
+Формат
+(assign (weval e e.var)(e.refaldata))
+s.Log
+({(assign (weval e.var)(e.refaldata))|(assign (weval e.var)(e.MultisetOfWevals)(e.WevalExpression))}^*)
+((AreEqual ((s.Log)(e.Multiset)(e.WevalExpression))((s.Log)(e.Multiset)(e.WevalExpression)))^*)
+({(assign (weval e.var)(e.refaldata))|(assign (weval e.var)(e.MultisetOfWevals)(e.WevalExpression))}^*)
+(Desired e.calls)(e.Restrictions)(e.Assignments)((Delayed))(s.Log)
+=>
+((AreEqual ((s.Log)(e.Multiset)(e.WevalExpression))((s.Log)(e.Multiset)(e.WevalExpression)))^*)
+({(assign (weval e.var)(e.refaldata))|(assign (weval e.var)(e.MultisetOfWevals)(e.WevalExpression))}^*)
+(Desired e.calls)(e.Restrictions)(e.Assignments)((Delayed))(s.Log)
+*/
+DelExcAssgn1 {
+    (assign t.weval t.refaldata)'F'(e.ProcessedAssignments)(e.NewEquations)(e.ParameterList)e.Config=
+            <DeleteExcessiveAssignments (e.ProcessedAssignments)(e.NewEquations)(e.ParameterList)e.Config>;
+    (assign t.weval t.refaldata)'T'(e.ProcessedAssignments)(e.NewEquations)(e.ParameterList)e.Config=
+            <DeleteExcessiveAssignments (e.ProcessedAssignments (assign t.weval t.refaldata))(e.NewEquations)(e.ParameterList)e.Config>;
+}
+
+/*Проверка, имеет ли переменная хотя бы одно вхождение в список уравнений и назначений.
+Формат
+(weval s.type t.mynumber)
+[WordEquation]|(assign (weval e.vardata)(e.RefalExpr))|(assign (weval e.vardata)(e.Multiset)([WevalExpression]))
+=> 'T'|'F'
+*/
+IfVarIsInEq {
+    t.weval  = 'F';
+    t.weval (AreEqual ((s.Log1)(e.Multiset1)(e.Expr1))((s.Log2)(e.Multiset2)(e.Expr2))) e.eqsandasgms= 
+            <IfVarIsInEq1 t.weval <LogOr <IfIncluded (e.Multiset1)(<MyOne> t.weval)><IfIncluded (e.Multiset2)(<MyOne> t.weval)>>e.eqsandasgms>;
+    t.weval (assign t.weval e.Expr) e.eqsandasgms= 'T';
+    t.weval (assign t.weval1 (e.Multiset)(e.Expr)) e.eqsandasgms= 
+            <IfVarIsInEq1 t.weval <IfIncluded (e.Multiset) (<MyOne> t.weval)>e.eqsandasgms>;
+    t.weval (assign t.weval1 e.Expr) e.eqsandasgms= <IfVarIsInEq t.weval e.eqsandasgms>;
+}
+
+IfVarIsInEq1 {
+    t.weval 'F' e.equations = <IfVarIsInEq t.weval e.equations>;
+    t.weval 'T' e.equations = 'T';
+}
+
+/*Подстановка данных рефала вместо представляющих их переменных типа weval.
+Формат
+(
+	([WordEquation]^*)
+	((assign (weval e.vardata)(e.RefalExpr))|(assign (weval e.vardata)(e.Multiset)([WevalExpression]))^*)
+	(Desired e.calls)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log)
+)
+=>
+([PRTC])
+(в скобках)
+*/
+SubstituteWevalsConf
+{
+	(Zero) = ;
+	((e.NewEquations)(e.ParameterList)(Desired e.calls)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log)) =
+		(<SubstituteWevals1 
+			(<SortWEAsgn ()()e.ParameterList>)
+			(<Transform2ClassicEqs e.NewEquations> (Desired e.calls))
+			(e.restrictions)(e.assignments)((Delayed e.Clashes))
+			(s.Log)
+		>);
+}
+
+/*
+Формат
+(
+	([WordEquation]^*)
+	((assign (weval e.vardata)(e.RefalExpr))|(assign (weval e.vardata)(e.Multiset)([WevalExpression]))^*)
+	(Desired e.calls)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log)
+)
+=>
+([PRTC])
+*/
+SubstituteWevals1
+{
+	((Restrictions )(Other ))
+		(e.Equations (Desired e.calls))(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log) =
+			(e.Equations (Desired e.calls))(e.restrictions)(e.assignments)((Delayed e.Clashes))('T');
+
+/*ВАЖНО! Сужения на параметры вида "свободный параметр" должны бы обрабатываться отдельно -
+подставляться ТОЛЬКО в уравнения. Но для этого ещё надо понять, что параметр свободный, а не 
+свидетельствует о равенстве двух параметров / выражений
++++ сделано. В блоке DeleteExcessiveAssignments*/
+
+/*остались лишь сужения на параметры - их подставляем*/
+	((Restrictions (assign e.restr) e.otherr)(Other ))
+		(e.Equalities)(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+			<SubstituteWevals1 
+				((Restrictions e.otherr)(Other ))
+				<SubstituteNewRestriction (assign e.restr)(e.Equalities)(e.restrictions)(e.assignments)(e.Clashes)>
+			>;
+
+/*сужение на вызов в виде свободной переменной даёт подстановку этой переменной в равенства
+
+	((Restrictions e.NR)(Other (assign (call e.call)((weval e e.data))) e.other))
+		(e.Equalities (Desired e.CallConditions))(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+			<SubstituteWevals1 
+				((Restrictions e.NR)(Other e.other))
+				(<SubstituteInEqualities (assign (weval e e.data)((call e.call)))e.Equalities (Desired e.CallConditions)>)
+				(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+			>;
+*/
+/*сужение на вызов просто подставляется в блок Desired
+*/
+	((Restrictions e.NR)(Other (assign (call e.call)(e.Val)) e.other))
+		(e.Equalities (Desired e.desiredcalls))(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+			<SubstituteWevals1 
+				((Restrictions e.NR)(Other e.other))
+				(e.Equalities (Desired e.desiredcalls  (AreEqual (('F')(call e.call))(('F')e.Val))))
+				(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+			>;
+
+/*сужение на переменную типа var осуществляет подстановку в блоки уравнений и Desired
+*/
+	((Restrictions e.NR)(Other (assign (var e.VName)(e.Val)) e.other))
+		(e.Equalities (Desired e.CallConditions))(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+			<SubstituteWevals1 
+				((Restrictions e.NR)(Other e.other))
+				(<SubstituteInEqualities ((assign (var e.VName)(e.Val))) e.Equalities  (Desired e.CallConditions)>)
+				(e.restrictions)(e.assignments (assign (var e.VName)(e.Val)))(e.Clashes)(s.Log)
+			>;
+
+/*сужение на переменную типа weval осуществляет подстановку в блоки как уравнений, так и Desired 
+Это сужение может содержать ссылки на параметры или другие переменные типа weval
+*/
+	((Restrictions e.NR)(Other (assign (weval e.VName)(e.Val)) e.other))
+		(e.Equalities (Desired e.CallConditions))(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+			<SubstituteWevals1 
+				((Restrictions e.NR)(Other e.other))
+				(<SubstituteInEqualities ((assign (weval e.VName)(e.Val)))e.Equalities (Desired  e.CallConditions)>)
+				(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+			>;
+}
+
+
+/*удаление блоков сложности из уравнений*/
+Transform2ClassicEqs
+{
+	= ;
+	(AreEqual ((s.Log1)(e.Comp1)(e.LHS))((s.Log2)(e.Comp2)(e.RHS))) e.other =
+		(AreEqual ((s.Log1)e.LHS)((s.Log2)e.RHS))<Transform2ClassicEqs e.other>;
+}
+
+/*Разделение назначений на weval на назначения на параметры, назначения на рефал-данные и 
+назначения на другие переменные weval, которые тут же подставляются в назначения на рефал-данные
+Вход
+((assign (weval e.vardata)(e.RefalExpr))^*)((assign (weval e.vardata)(e.Multiset)([WevalExpression]))^*)
+[(assign (weval e.vardata)(e.MultiSet)([WevalExpression]))|(assign (weval e.vardata)(e.RefalExpr))]^*
+Выход
+(Restrictions (assign (par e.pardata)(e.Expr))^*)
+(Other (assign (var e.vardata)(e.Expr))|(assign (call e.calldata)(e.Expr))|(assign (weval e.vardata)(e.Expr))^*)
+*/
+SortWEAsgn
+{
+	(e.RefalAsgn)(e.WEAsgn) = <FindParameterAssignments ()()e.RefalAsgn>;
+	(e.RefalAsgn)(e.WEAsgn) (assign (weval e.data) (t.RefalData)) e.assignments =
+		<SortWEAsgn 
+			(e.RefalAsgn <SubstituteAllWEAsgnInRA ()(assign t.RefalData ((weval e.data))) e.WEAsgn e.assignments>
+			)
+		(e.WEAsgn)
+		e.assignments>;
+	(e.RefalAsgn)(e.WEAsgn) (assign (weval e.data)(e.Complexity)(e.Val)) e.assignments =
+		<SortWEAsgn 
+			(e.RefalAsgn)(e.WEAsgn (assign (weval e.data)(e.Complexity)(e.Val))) e.assignments
+		>;
+}
+
+/*Подстановка назначения на weval, связывающего его с другими weval, в назначения на данные рефала*/
+SubstituteAllWEAsgnInRA
+{
+	(e.Processed)(assign t.RefalData ()) e.assignments = (assign t.RefalData (e.Processed));
+	
+	(e.Processed)(assign t.RefalData ((weval e.name) e.Val)) e.assignments = 
+		<SubstituteAllWEAsgnInRA1 
+			<IfDecompWE (weval e.name) e.assignments>
+			(e.Processed)(assign t.RefalData ((weval e.name) e.Val)) e.assignments
+		>;
+
+	(e.Processed)(assign t.RefalData (t.1 e.Val)) e.assignments = 
+		<SubstituteAllWEAsgnInRA (e.Processed t.1)(assign t.RefalData (e.Val)) e.assignments>;
+
+}
+
+/*Ищем составное значение для переменной типа weval, описывающей конфигурацию рефал-данных*/
+IfDecompWE
+{
+	t.Var = ('F')t.Var;
+	t.Var (assign t.WE t.RefalData)e.assignments = <IfDecompWE t.Var e.assignments>;
+	t.Var (assign t.Var t.Complexity (e.Val)) e.assignments = ('T')(e.Val);
+	t.Var (assign t.Var2 t.Complexity2 (e.Val)) e.assignments = <IfDecompWE t.Var e.assignments>;
+}
+
+SubstituteAllWEAsgnInRA1
+{
+	('F')t.Var (e.Processed)(assign t.RefalData (t.Var e.Val)) e.assignments =
+		<SubstituteAllWEAsgnInRA (e.Processed t.Var)(assign t.RefalData (e.Val)) e.assignments>;
+	('T')(e.VarVal) (e.Processed)(assign t.RefalData (t.Var e.Val)) e.assignments =
+		<SubstituteAllWEAsgnInRA (e.Processed)(assign t.RefalData (e.VarVal e.Val)) e.assignments>;
+}		
+
+/*Отделение назначений параметров от прочих назначений.
+Всем переменным типа weval, попадающим в описание этого параметра, ставятся в соответствие свежие параметры*/
+FindParameterAssignments
+{
+	(e.FinalParAsgmts)(e.NParsgm) = (Restrictions e.FinalParAsgmts)(Other e.NParsgm);
+	(e.FinalParAsgmts)(e.NParAsgm)(assign (par e.pardata)(e.Val))e.other = 
+		<FindParameterAssignments 
+			<ChangeWevals2Pars (e.FinalParAsgmts)()()(assign (par e.pardata)(e.Val))> 
+			e.NParAsgm e.other
+		>;
+	(e.FinalParAsgmts)(e.NParAsgm)(assign e.npa) e.other = 
+		<FindParameterAssignments (e.FinalParAsgmts)(e.NParAsgm (assign e.npa)) e.other>;
+}
+
+/*Как только оказывается, что параметр порождает новый параметр,
+все уже обработанные назначения не-параметров записываются в необработанные,
+и появляется новое назначение (assign (weval [type] [name])((par [type ][Fresh_ParInd]))),
+которое подставляется во все назначения, исключая назначения параметров, в
+которых уже не присутствуют переменные weval*/
+ChangeWevals2Pars
+{
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)())e.other =
+		(e.FinalAsgmts(assign (par e.pardata)(e.Processed)))() e.NewPars e.other;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)((weval e e.vardata) e.Val))e.other =
+		<ChangeWevals2Pars 
+			(e.FinalAsgmts)
+			(e.Processed (par e <FreshIndex 'pare_ind'>))
+			(e.NewPars (assign (weval e e.vardata)((par e <CurrentIndex 'pare_ind'>))))
+			(assign (par e.pardata)(e.Val))
+			<SubstituteParsInWEAsgns 
+				(assign (weval e e.vardata)((par e <CurrentIndex 'pare_ind'>)))
+				e.other>
+		>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)((weval t e.vardata) e.Val))e.other =
+		<ChangeWevals2Pars 
+			(e.FinalAsgmts)
+			(e.Processed (par t <FreshIndex 'part_ind'>))
+			(e.NewPars (assign (weval t e.vardata)((par t <CurrentIndex 'part_ind'>))))
+			(assign (par e.pardata)(e.Val))
+			<SubstituteParsInWEAsgns 
+				(assign (weval t e.vardata)((par t <CurrentIndex 'part_ind'>)))
+				e.other>
+		>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)((weval s e.vardata) e.Val))e.other =
+		<ChangeWevals2Pars 
+			(e.FinalAsgmts)
+			(e.Processed (par s <FreshIndex 'pars_ind'>))
+			(e.NewPars (assign (weval s e.vardata)((par s <CurrentIndex 'pars_ind'>))))
+			(assign (par e.pardata)(e.Val))
+			<SubstituteParsInWEAsgns 
+				(assign (weval s e.vardata)((par s <CurrentIndex 'pars_ind'>)))
+				e.other>
+		>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)((var e e.vardata) e.Val))e.other =
+		<ChangeWevals2Pars 
+			(e.FinalAsgmts)
+			(e.Processed (par e <FreshIndex 'pare_ind'>))
+			(e.NewPars (assign (var e e.vardata)((par e <CurrentIndex 'pare_ind'>))))
+			(assign (par e.pardata)(e.Val))
+			<SubstituteParsInWEAsgns 
+				(assign (weval e e.vardata)((par e <CurrentIndex 'pare_ind'>)))
+				e.other>
+		>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)((var t e.vardata) e.Val))e.other =
+		<ChangeWevals2Pars 
+			(e.FinalAsgmts)
+			(e.Processed (par t <FreshIndex 'part_ind'>))
+			(e.NewPars (assign (weval t e.vardata)((par t <CurrentIndex 'part_ind'>))))
+			(assign (par e.pardata)(e.Val))
+			<SubstituteParsInWEAsgns 
+				(assign (weval t e.vardata)((par t <CurrentIndex 'part_ind'>)))
+				e.other>
+		>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)((var s e.vardata) e.Val))e.other =
+		<ChangeWevals2Pars 
+			(e.FinalAsgmts)
+			(e.Processed (par s <FreshIndex 'pars_ind'>))
+			(e.NewPars (assign (weval s e.vardata)((par s <CurrentIndex 'pars_ind'>))))
+			(assign (par e.pardata)(e.Val))
+			<SubstituteParsInWEAsgns 
+				(assign (weval s e.vardata)((par s <CurrentIndex 'pars_ind'>)))
+				e.other>
+		>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)(('*' e.Val1) e.Val2))e.other =
+		<ContinueChW2P (e.Processed)(e.Val2) <ChangeWevals2Pars
+			(e.FinalAsgmts)()(e.NewPars)(assign (par e.pardata)(e.Val1))e.other
+		>>;
+	(e.FinalAsgmts)(e.Processed)(e.NewPars)(assign (par e.pardata)(t.1 e.Val))e.other =
+		<ChangeWevals2Pars
+			(e.FinalAsgmts)(e.Processed t.1)(e.NewPars)(assign (par e.pardata)(e.Val))e.other
+		>;
+}
+
+/*Закончили порождать параметры в скобках - соединяем результаты и продолжаем вне скобок*/
+ContinueChW2P
+{
+(e.BefBrack)(e.AfterBrack)(e.FinalAsgmts(assign (par e.pardata)(e.InBrack)))() e.other =
+<ChangeWevals2Pars (e.FinalAsgmts)(e.BefBrack ('*' e.InBrack))()(assign (par e.pardata)(e.AfterBrack))e.other>;
+
+}
+/*Подстановка вновь порожденного параметра в назначение, полученное из уравнений в словах*/
+SubstituteParsInWEAsgns
+{
+	t.NewPar = ;
+	t.NewPar (assign t.RefalData (e.Val)) e.other =
+		(assign t.RefalData (<SubstituteInWE t.NewPar e.Val>)) <SubstituteParsInWEAsgns t.NewPar e.other>;
+}
+
+/*******************************************************************************************
+ФУНКЦИИ ПЕРВИЧНОГО АНАЛИЗА УРАВНЕНИЙ В СЛОВАХ
+********************************************************************************************/
+
+/*Если имеются уравнения, в которых можно что-то уточнить - уточняем,
+иначе возвращаем всю конфигурацию*/
+OptimizeEquations
+{
+	(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+		<OptimizeEquations1 (<IfProcessible () e.equations>) (e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)>;
+}
+
+OptimizeEquations1
+{
+/*	((e.PrEq)(e.equations1)'T')(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)=
+		<OptimizeEquations 
+			<ProcessEqualityLeft (e.equations1)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)(e.PrEq)>
+		>;*/
+	((e.PreQ)(e.equations1)s.NotT)(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)=
+			(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log);
+}
+
+
+/*******************************************************************************************
+ФУНКЦИИ СОПОСТАВЛЕНИЯ В ПРОГОНКЕ
+********************************************************************************************/
+
+
+/*
+Основная функция прогонки
+((e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log))=>((e.equations)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))^*
+e.equations ::= ((AreEqual ((s.Log1) e.Expr1)((s.Log2) e.Expr2))^* (Desired (AreEqual ((s.Log1) (call e.Call))((s.Log2) e.Expr4Call))))
+e.Expr4Call могут содержать переменные шаблона!
+
+e.restrictions ::= (assign (par e.pardata) (e.Val))^* //e.Val не содержит переменных шаблона
+e.assignments ::= (assign (var e.vardata) (e.Val))^* //e.Val не содержит переменных шаблона
+e.clashes ::= ((e.Expr) to (e.Pattern))^* (Delayed ((e.Expr) to (e.Pattern))^*) // e.Expr не содержит переменных шаблона, e.Pattern - параметров и вызовов
+*/
+$ENTRY ClashLeft
+{
+/*1. Удаление неудачного сопоставления*/
+	((e.equations)(e.restrictions)(e.assignments)(e.Clashes)('F'))=(Zero);
+
+/*2. Результат успешного сопоставления без отложенных сопоставлений и без уравнений - оставляем всё как есть*/
+	(((Desired ))(e.restrictions)(e.assignments)((Delayed ))(s.Log))=
+				(((Desired ))(e.restrictions)(e.assignments)((Delayed ))(s.Log));
+/*3. Результат успешного сопоставления без отложенных сопоставлений -
+переход к разрешению уравнений*/
+	((e.equations)(e.restrictions)(e.assignments)((Delayed ))(s.Log))=
+				<SolveEquations 
+					(<OptimizeEquations 
+						(e.equations)(e.restrictions)(e.assignments)((Delayed ))(s.Log)
+					>)
+				>;
+/*4. Результат успешного сопоставления c отложенными сопоставлениями -
+ищем среди них те, в которых были существенные изменения*/
+	((e.equations)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))=
+				<FindProcessibleClashes 
+					(()
+					<OptimizeEquations (e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)>
+					)
+				>;
+
+/*5. Удаление пустого сопоставления из шаблонов*/
+	((e.equations)(e.restrictions)(e.assignments)((() to ())e.Clashes)(s.Log))=
+				<ClashLeft
+					(<OptimizeEquations
+						(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+					>)
+				>;
+/*6. Удаление пустого сопоставления из шаблонов
+	((e.equations)(e.restrictions)(e.assignments)(()e.Clashes)(s.Log))=
+				<ClashLeft
+					(<OptimizeEquations
+						(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+					>)
+				>;*/
+
+/*6. Единственная е-переменная - сохраняем в назначениях*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ((var e e.vardata)))e.Clashes)(s.Log))=
+		<ClashLeft 
+			((e.equations)(e.restrictions)((assign (var e e.vardata) (e.Expr))e.assignments)
+				((() to ())e.Clashes)(s.Log))
+		>;
+/*7. 11.06.ИЗМЕНЕНО! Выражение равно пустому шаблону - все термы выражения пусты*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ())e.Clashes)(s.Log))=
+		<ClashLeft (((AreEqual (('T')e.Expr)(('F')))e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log))>;
+
+/* Подслучай 7 - Единственный е-параметр равен пустому выражению - подстановка
+	((e.equations)(e.restrictions)(e.assignments)((((par e e.pardata)) to ())e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+						(e.equations)(e.restrictions)(e.assignments)
+				(e.Clashes)>)
+		>;*/
+
+/*8. Непустой и не состоящий из одной е-переменной шаблон равен пустому выражению - !ПОКА! противоречие. Здесь считаем,
+что не может быть ещё e-переменных в нем.*/
+	((e.equations)(e.restrictions)(e.assignments)((() to (e.Pattern))e.Clashes)(s.Log))=(Zero);
+
+/*9. В остальных случаях вызываем функцию двухстороннего сопоставления слева - символьную часть*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeftNonEmptySymb 
+			((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))
+		>;
+}
+
+/*Функция, продолжающая работу ClashLeft на непустых e.Pattern и e.Expr.Обрабатывает только случаи, когда 
+слева и справа символы, термы, термовые и символьные переменные и параметры
+Эта часть не порождает новых вариантов конфигурации*/
+ClashLeftNonEmptySymb {
+/*1. символ - символ*/
+	((e.equations)(e.restrictions)(e.assignments)(((s.Sym e.Expr) to (s.Sym e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft ((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))>;
+
+/*2. символ - t-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par t e.pardata) e.Expr) to (s.Sym e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par t e.pardata) (s.Sym))
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>)
+		>;
+/*3. символ - s-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par s e.pardata) e.Expr) to (s.Sym e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par s e.pardata) (s.Sym))
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>)
+		>;
+
+/*4. s-переменная - символ*/
+	((e.equations)(e.restrictions)(e.assignments)(((s.Sym e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var s e.vardata) (s.Sym))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*5. s-переменная - t-параметр. Сужение t-параметра до (свежего) s-параметра*/
+	((e.equations)(e.restrictions)(e.assignments)((((par t e.pardata) e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var s e.vardata) ((par <FreshIndex 'pars_ind'>)))(e.assignments)>
+						<SubstituteNewRestriction 
+						(assign (par t e.pardata) 
+							((par s <CurrentIndex 'pars_ind'>))
+						)
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>>)
+		>;
+/*6. s-переменная - s-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par s e.pardata) e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var s e.vardata) ((par s e.pardata)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*7. t-переменная - символ*/
+	((e.equations)(e.restrictions)(e.assignments)(((s.Sym e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) (s.Sym))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*8. t-переменная - выражение в скобках*/
+	((e.equations)(e.restrictions)(e.assignments)(((('*'e.Brack) e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) (('*' e.Brack)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*9. t-переменная - s-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par s e.pardata) e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) ((par s e.pardata)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*10. t-переменная - t-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par t e.pardata) e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) ((par t e.pardata)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+
+/*11. выражение в скобках - t-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par t e.pardata) e.Expr) to (('*'e.InBracks) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par t e.pardata) (('*'e.InBracks)))
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>)
+		>;
+/*12. выражение в скобках - выражение в скобках*/
+	((e.equations)(e.restrictions)(e.assignments)(((('*'e.Expr1) e.Expr2) to (('*'e.Pat1) e.Pat2))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(
+				(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr1) to (e.Pat1))((e.Expr2) to (e.Pat2))e.Clashes)(s.Log)
+			)
+		>;
+
+/*13. В остальных случаях вызываем функцию сопоставления слева выражений, содержащих неизвестные произвольной длины*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeftGeneric 
+			((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))
+		>;
+}
+
+/*Функция, продолжающая работу ClashLeft на непустых e.Pattern и e.Expr, содержащих хотя бы с одной
+стороны слева неизвестную произвольной длины (параметр, переменную е-типа) либо вызов функции*/
+ClashLeftGeneric {
+/*1. символ - e-параметр
+Два случая - сужение е-параметра до символа + е-параметра 
+и сужение е-параметра до пустой строки
+*/
+	((e.equations)(e.restrictions)(e.assignments)((((par e e.pardata) e.Expr) to (s.Sym e.Pattern))e.Clashes)(s.Log))=
+		<AAA><ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						(s.Sym
+						(par e <FreshIndex 'pare_ind'>))				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					((((par e <CurrentIndex 'pare_ind'>)e.Expr) to (e.Pattern))e.Clashes)
+			>)
+		>
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to (s.Sym e.Pattern))e.Clashes)
+				
+			>)	
+		>;
+
+/*2. s-переменная - e-параметр
+Два случая - сужение е-параметра до s-параметра + е-параметра (а s-переменной - до s-параметра)
+и сужение е-параметра до пустой строки
+*/
+	((e.equations)(e.restrictions)(e.assignments)((((par e e.pardata) e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment 
+				<CheckNewAssignment (assign (var s e.vardata) ((par s <FreshIndex 'pars_ind'>)))(e.assignments)> 
+				<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						((par s <CurrentIndex 'pars_ind'>)
+						(par e <FreshIndex 'pare_ind'>))				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					((((par e <CurrentIndex 'pare_ind'>)e.Expr) to (e.Pattern))e.Clashes)
+				>
+			>)
+		>
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)
+				
+			>)	
+		>;
+/*3. t-переменная - e-параметр
+Два случая - сужение е-параметра до t-параметра + е-параметра (а t-переменной - до t-параметра)
+и сужение е-параметра до пустой строки
+*/
+	((e.equations)(e.restrictions)(e.assignments)((((par e e.pardata) e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<AddNewAssignment 
+				<CheckNewAssignment (assign (var t e.vardata) ((par t <FreshIndex 'part_ind'>)))(e.assignments)> 
+				<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						((par t <CurrentIndex 'part_ind'>)
+						(par e <FreshIndex 'pare_ind'>))				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					((((par e <CurrentIndex 'pare_ind'>)e.Expr) to (e.Pattern))e.Clashes)
+				>
+			>)
+		>
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)
+				
+			>)	
+		>;
+
+/*4. выражение в скобках - е-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par e e.pardata) e.Expr) to (('*'e.Pat1) e.Pat2))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						(
+						('*'(par e <FreshIndex 'pare_ind'>))
+						(par e <FreshIndex 'pare_ind'>)
+						)				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					(
+						(((par e <Sub <CurrentIndex 'pare_ind'> 1>)) to (e.Pat1))
+						(((par e <CurrentIndex 'pare_ind'>)e.Expr) to (e.Pat2))
+						e.Clashes
+					)
+			>)
+		>
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to (('*'e.Pat1) e.Pat2))e.Clashes)			
+			>)	
+		>;
+
+/*5. образец сопоставляется с единственным вызовом*/
+	((e.equations)(e.restrictions)(e.assignments)((((call e.call)) to (e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft
+			(<ProcessNewSimpleCallCondition (<IfAFixedExpression (<SubstitutionAttempt (e.assignments) e.Pattern>)>)
+							(AreEqual (('F')(call e.call))(('F')<SubstitutionAttempt (e.assignments) e.Pattern>))
+							(e.equations)(e.restrictions)(e.assignments)(e.Clashes)
+			>)
+		>;
+/*6. символ - вызов: два варианта - пустой либо символ+е-неизвестная*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((((call e.call)e.Expr) to (s.Sym e.Pattern))e.Clashes)(s.Log))=
+		<ClashRight
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')s.Sym (weval e <FreshIndex 'wevale_ind'>)))
+					)
+				)
+				(e.restrictions)(e.assignments)((((call e.call)e.Expr) to (s.Sym e.Pattern))e.Clashes)('N')
+			)
+		>
+		<ClashLeft
+			(
+							
+					<SubstituteCallFormat (assign (call e.call)())	(e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to (s.Sym e.Pattern))e.Clashes)('N')>
+			
+			)
+		>;
+/*7. символьная переменная - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((((call e.call)e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashRight
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(var s e.vardata) (weval e <FreshIndex 'wevale_ind'>)))
+					)
+				)
+				(e.restrictions)(e.assignments)((((call e.call)e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)('N')
+			)
+		>
+		<ClashLeft
+			(
+							
+				<SubstituteCallFormat (assign (call e.call)())(e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to ((var s e.vardata) e.Pattern))e.Clashes)('N')>
+			
+			)
+		>;
+/*8. переменная-терм - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((((call e.call)e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)(s.Log))=
+		<ClashRight
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(var t e.vardata) (weval e <FreshIndex 'wevale_ind'>)))
+					)
+				)
+				(e.restrictions)(e.assignments)((((call e.call)e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)('N')
+			)
+		>
+		<ClashLeft
+			(
+							
+				<SubstituteCallFormat (assign (call e.call)())	(e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to ((var t e.vardata) e.Pattern))e.Clashes)('N')>
+			
+			)
+		>;
+/*9. выражение в скобках - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((((call e.call)e.Expr) to (('*'e.Pat1) e.Pat2))e.Clashes)(s.Log))=
+		<ClashRight
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))
+								   (('F')
+									('*' (weval e <FreshIndex 'wevale_ind'>))
+									(weval e <FreshIndex 'wevale_ind'>)
+									))
+					)
+				)
+				(e.restrictions)(e.assignments)((((call e.call)e.Expr) to (('*'e.Pat1) e.Pat2))e.Clashes)('N')
+			)
+		>
+		<ClashLeft
+			(
+							
+				<SubstituteCallFormat (assign (call e.call)()) (e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to (('*'e.Pat1) e.Pat2))e.Clashes)('N')>
+			
+			)
+		>;
+/*10. е-переменная ещё с чем-то - выражение => переход к сопоставлению справа*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ((var e e.vardata)e.Pattern))e.Clashes)(s.Log))=
+		<ClashRight 
+			((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to ((var e e.vardata)e.Pattern))e.Clashes)(s.Log))
+		>;
+/*11. все прочие варианты - сопоставление невыполнимо и коллапсирует*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))= (Zero);
+}
+
+/*Сопоставление с образцом справа.*/
+ClashRight
+{
+/*1. Удаление неудачного сопоставления*/
+	((e.equations)(e.restrictions)(e.assignments)(e.Clashes)('F'))=(Zero);
+/*2. Результат успешного сопоставления без отложенных сопоставлений -
+переход к разрешению уравнений*/
+	((e.equations)(e.restrictions)(e.assignments)((Delayed ))(s.Log))=
+				<SolveEquations 
+					(<OptimizeEquations
+						(e.equations)(e.restrictions)(e.assignments)((Delayed ))(s.Log)
+					>)
+				>;
+/*3. Результат успешного сопоставления c отложенными сопоставлениями -
+ищем среди них те, в которых были существенные изменения*/
+	((e.equations)(e.restrictions)(e.assignments)((Delayed e.Clashes))(s.Log))=
+				<FindProcessibleClashes (()
+					<OptimizeEquations (e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)>)>;
+/*. Удаление пустого сопоставления из шаблонов
+	((e.equations)(e.restrictions)(e.assignments)(()e.Clashes)(s.Log))=
+				<ClashLeft 
+					(<OptimizeEquations (e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+					>)
+					>;*/
+
+/*4. Единственная е-переменная - сохраняем в назначениях*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ((var e e.vardata)))e.Clashes)(s.Log))=
+		<ClashLeft 
+			((e.equations)(e.restrictions)((assign (var e e.vardata) (e.Expr))e.assignments)
+				(e.Clashes)(s.Log))
+		>;
+/*5. Выражение равно пустому шаблону - все термы выражения пусты*/
+/*	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ())e.Clashes)(s.Log))=
+		<ClashLeft (<AllTermsAreNil ()(e.Expr)(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)>)>;*/
+
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ())e.Clashes)(s.Log))=
+		<ClashLeft (((AreEqual (('T')e.Expr)(('F')))e.equations)(e.restrictions)(e.assignments)(((e.Expr) to ())e.Clashes)(s.Log))>;
+/*5.1. Подслучай предыдущего. Единственный е-параметр равен пустому выражению - подстановка
+	((e.equations)(e.restrictions)(e.assignments)((((par e e.pardata)) to ())e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+						(e.equations)(e.restrictions)(e.assignments)
+				(e.Clashes)>)
+		>;*/
+/*6. Непустой и не состоящий из одной е-переменной шаблон равен пустому выражению - !ПОКА! противоречие*/
+	((e.equations)(e.restrictions)(e.assignments)((() to (e.Pattern))e.Clashes)(s.Log))=(Zero);
+
+/*7. В остальных случаях вызываем функцию двухстороннего сопоставления справа - символьную часть*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))=
+		<ClashRightNonEmptySymb 
+			((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))
+		>;
+}		
+
+/*Функция, продолжающая работу ClashRight на непустых e.Pattern и e.Expr.Обрабатывает только случаи, когда 
+слева и справа символы, термы, термовые и символьные переменные и параметры
+Эта часть не порождает новых вариантов конфигурации*/		
+ClashRightNonEmptySymb {		
+/*1. символ - символ*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr s.Sym) to (e.Pattern s.Sym))e.Clashes)(s.Log))=
+		<ClashRight ((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))>;
+
+/*2. символ - t-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par t e.pardata)) to (e.Pattern s.Sym))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par t e.pardata) (s.Sym))
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>)
+		>;
+/*3. символ - s-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)((((par s e.pardata) e.Expr) to (s.Sym e.Pattern))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par s e.pardata) (s.Sym))
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>)
+		>;
+/*4. s-переменная - символ*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr s.Sym) to (e.Pattern (var s e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight
+			(<AddNewAssignment <CheckNewAssignment (assign (var s e.vardata) (s.Sym))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*5. s-переменная - s-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par s e.pardata)) to (e.Pattern (var s e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<AddNewAssignment <CheckNewAssignment (assign (var s e.vardata) ((par s e.pardata)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*6. s-переменная - t-параметр. Сужение t-параметра до (свежего) s-параметра*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par t e.pardata)) to (e.Pattern (var s e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<AddNewAssignment <CheckNewAssignment (assign (var s e.vardata) ((par <FreshIndex 'pars_ind'>)))(e.assignments)>
+						<SubstituteNewRestriction 
+						(assign (par t e.pardata) 
+							((par s <CurrentIndex 'pars_ind'>))
+						)
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>>)
+		>;
+/*7. t-переменная - символ*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr s.Sym) to (e.Pattern (var t e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) (s.Sym))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*8. t-переменная - выражение  в скобках*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr ('*'e.Brack)) to (e.Pattern (var t e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) (('*'e.Brack)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+
+/*9. t-переменная - s-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par s e.pardata)) to (e.Pattern (var t e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) ((par s e.pardata)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*10. t-переменная - t-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par t e.pardata)) to (e.Pattern (var t e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<AddNewAssignment <CheckNewAssignment (assign (var t e.vardata) ((par t e.pardata)))(e.assignments)>
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log)>)
+		>;
+/*11. выражение в скобках - t-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par t e.pardata)) to (e.Pattern ('*'e.InBracks)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par t e.pardata) (('*'e.InBracks)))
+						(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)>)
+		>;
+/*12. выражение в скобках - выражение в скобках*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr2('*'e.Expr1)) to (e.Pat2('*'e.Pat1)))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(
+				(e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr1) to (e.Pat1))((e.Expr2) to (e.Pat2))e.Clashes)(s.Log)
+			)
+		>;
+
+/*13. В остальных случаях вызываем функцию сопоставления справа выражений, содержащих неизвестные произвольной длины*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))=
+		<ClashRightGeneric 
+			((e.equations)(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))
+		>;
+}
+
+ClashRightGeneric {
+/*1. символ - e-параметр
+Два случая - сужение е-параметра до символа + е-параметра 
+и сужение е-параметра до пустой строки
+*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par e e.pardata)) to (e.Pattern s.Sym))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						((par e <FreshIndex 'pare_ind'>)
+						 s.Sym)				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr (par e <CurrentIndex 'pare_ind'>)) to (e.Pattern))e.Clashes)
+			>)
+		>
+		<ClashRight
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to (e.Pattern s.Sym))e.Clashes)
+				
+			>)	
+		>;
+/*2. s-переменная - e-параметр
+Два случая - сужение е-параметра до s-параметра + е-параметра (а s-переменной - до s-параметра)
+и сужение е-параметра до пустой строки
+*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par e e.pardata)) to (e.Pattern (var s e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<AddNewAssignment 
+				<CheckNewAssignment (assign (var s e.vardata) ((par s <FreshIndex 'pars_ind'>)))(e.assignments)> 
+				<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						(
+						   (par e <FreshIndex 'pare_ind'>)
+						   (par s <CurrentIndex 'pars_ind'>)
+						)				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr (par e <CurrentIndex 'pare_ind'>)) to (e.Pattern))e.Clashes)
+				>
+			>)
+		>
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to (e.Pattern (var s e.vardata)))e.Clashes)
+				
+			>)	
+		>;
+/*3. t-переменная - e-параметр
+Два случая - сужение е-параметра до t-параметра + е-параметра (а t-переменной - до t-параметра)
+и сужение е-параметра до пустой строки
+*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par e e.pardata)) to (e.Pattern (var t e.vardata)))e.Clashes)(s.Log))=
+		<ClashRight 
+			(<AddNewAssignment 
+				<CheckNewAssignment (assign (var t e.vardata) ((par t <FreshIndex 'part_ind'>)))(e.assignments)> 
+				<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						(
+						   (par e <FreshIndex 'pare_ind'>)
+						   (par t <CurrentIndex 'part_ind'>)
+						)				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr (par e <CurrentIndex 'pare_ind'>)) to (e.Pattern))e.Clashes)
+				>
+			>)
+		>
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to (e.Pattern (var t e.vardata)))e.Clashes)
+				
+			>)	
+		>;
+		
+/*4. выражение в скобках - е-параметр*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr (par e e.pardata)) to (e.Pat2 ('*'e.Pat1)))e.Clashes)(s.Log))=
+		<ClashLeft 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) 
+						(
+						(par e <FreshIndex 'pare_ind'>)
+						('*'(par e <FreshIndex 'pare_ind'>))
+						)				
+					)
+					(e.equations)(e.restrictions)(e.assignments)
+					(
+						(((par e <CurrentIndex 'pare_ind'>)) to (e.Pat1))
+						((e.Expr (par e <Sub <CurrentIndex 'pare_ind'> 1>)) to (e.Pat2))
+						e.Clashes
+					)
+			>)
+		>
+		<ClashRight 
+			(<SubstituteNewRestriction 
+					(assign (par e e.pardata) ())
+					(e.equations)(e.restrictions)(e.assignments)
+					(((e.Expr) to (e.Pat2 ('*'e.Pat1)))e.Clashes)					
+				
+			>)	
+		>;
+		
+/*5. кусок шаблона сопоставляется с единственным вызовом*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)((((call e.call)) to (e.Pattern))e.Clashes)(s.Log))=
+		<ClashLeft
+			(
+			(e.equations (Desired <CheckNewEq4Multiplicity () (e.calls) (AreEqual (('F')(call e.call))(('F')e.Pattern))>))(e.restrictions)(e.assignments)(e.Clashes)
+				('N'))
+		>;
+/*символ - вызов: два варианта - пустой либо символ+с-параметр
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr (call e.call)) to (e.Pattern s.Sym))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(par c <FreshIndex 'parc_ind'>) s.Sym))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl (('F')((e.Expr (call e.call)) to (e.Pattern s.Sym)))))('N')
+			)
+		>
+		<ClashRight
+			(<ProcessNewSimpleCallCondition ('T')
+							(AreEqual (('F')(call e.call))(('F')))
+							(e.equations(Desired e.calls))(e.restrictions)(e.assignments)
+							(((e.Expr) to (e.Pattern s.Sym))e.Clashes(Delayed e.DelCl))
+							>
+			)
+		>;*/
+/*6. переменная-выражение+символ - вызов: два варианта - пустой либо символ+строковая переменная. Откладывать сопоставление уже не нужно*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr (call e.call)) to ((var e e.evar) s.Sym))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(weval e <FreshIndex 'wevale_ind'>) s.Sym))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl))('N')
+			)
+		>
+		<ClashRight
+			(
+			<SubstituteCallFormat (assign (call e.call)())	
+				(
+					e.equations 
+					(Desired <CheckNewEq4Multiplicity ()(e.calls) 
+                                            (AreEqual (('F')(call e.call))(('F')))
+                                            >
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(((e.Expr) to ((var e e.evar) s.Sym))e.Clashes(Delayed e.DelCl))('N')
+			>				
+			)
+		>;
+/*7. символ - вызов: два варианта - пустой либо символ+с-параметр*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr (call e.call)) to (e.Pattern s.Sym))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(weval e <FreshIndex 'wevale_ind'>) s.Sym))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl (('F')(e.Expr (call e.call)) to (e.Pattern s.Sym))))('N')
+			)
+		>
+		<ClashRight
+			(
+			<SubstituteCallFormat (assign (call e.call)())	
+				(
+					e.equations 
+					(Desired <CheckNewEq4Multiplicity ()(e.calls) 
+                                        (AreEqual (('F')(call e.call))(('F')))>
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(((e.Expr) to (e.Pattern s.Sym))e.Clashes(Delayed e.DelCl))('N')
+			>				
+			)
+		>;
+/*8. перем выраж+ символьная переменная - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr(call e.call)) to ((var e e.vardata1) (var s e.vardata)))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(weval e <FreshIndex 'wevale_ind'>)(var s e.vardata)))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl))('N')
+			)
+		>
+		<ClashRight
+			(	<SubstituteCallFormat (assign (call e.call)()) (e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+					(((e.Expr) to ((var e e.vardata1) (var s e.vardata)))e.Clashes(Delayed e.DelCl))('N')>
+							
+			)
+		>;
+/*9. символьная переменная - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr(call e.call)) to (e.Pattern (var s e.vardata)))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(weval e <FreshIndex 'wevale_ind'>)(var s e.vardata)))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl (('F')(e.Expr (call e.call)) to (e.Pattern (var s e.vardata)))))('N')
+			)
+		>
+		<ClashRight
+			(	<SubstituteCallFormat (assign (call e.call)()) (e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+					(((e.Expr) to (e.Pattern (var s e.vardata)))e.Clashes(Delayed e.DelCl))('N')>
+							
+			)
+		>;
+/*10. перем-выраж + переменная-терм - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr(call e.call)) to ( (var e e.vardata2)(var t e.vardata)))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(weval e <FreshIndex 'wevale_ind'>)(var t e.vardata)))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl ))('N')
+			)
+		>
+		<ClashRight
+			(
+				<SubstituteCallFormat (assign (call e.call)())(e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to ( (var e e.vardata2)(var t e.vardata)))e.Clashes(Delayed e.DelCl))('N')>
+							
+			)
+		>;
+/*11. переменная-терм - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr(call e.call)) to ( e.Pattern(var t e.vardata)))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))(('F')(weval e <FreshIndex 'wevale_ind'>)(var t e.vardata)))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl (('F')(e.Expr (call e.call)) to (e.Pattern (var t e.vardata)))))('N')
+			)
+		>
+		<ClashRight
+			(
+				<SubstituteCallFormat (assign (call e.call)())(e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to ( e.Pattern(var t e.vardata)))e.Clashes(Delayed e.DelCl))('N')>
+							
+			)
+		>;
+
+/*12. перем-выраж+выражение в скобках - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr(call e.call)) to ((var e e.vardata)('*'e.Pat1)))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))
+								   (('F')
+									(weval e <FreshIndex 'wevale_ind'>)
+									('*' (weval e <FreshIndex 'wevale_ind'>))
+									))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl))('N')
+			)
+		>
+		<ClashRight
+			(
+				<SubstituteCallFormat (assign (call e.call)()) (e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to ((var e e.vardata) ('*'e.Pat1)))e.Clashes(Delayed e.DelCl))('N')>
+			)				
+			
+		>;
+/*13. выражение в скобках - вызов*/
+	((e.equations (Desired e.calls))(e.restrictions)(e.assignments)
+	(((e.Expr(call e.call)) to ( e.Pat2('*'e.Pat1)))e.Clashes (Delayed e.DelCl))(s.Log))=
+		<ClashLeft
+			(
+				(
+					e.equations 
+					(Desired e.calls (AreEqual (('F')(call e.call))
+								   (('F')
+									(weval e <FreshIndex 'wevale_ind'>)
+									('*' (weval e <FreshIndex 'wevale_ind'>))
+									))
+					)
+				)
+				(e.restrictions)(e.assignments)
+				(e.Clashes (Delayed e.DelCl (('F')(e.Expr (call e.call)) to (e.Pat2 ('*'e.Pat1)))))('N')
+			)
+		>
+		<ClashRight
+			(
+				<SubstituteCallFormat (assign (call e.call)()) (e.equations(Desired e.calls (AreEqual (('F')(call e.call))(('F')))))(e.restrictions)(e.assignments)
+							(((e.Expr) to (e.Pat2 ('*'e.Pat1)))e.Clashes(Delayed e.DelCl))('N')>
+			)				
+			
+		>;
+/*14. e-переменная + что-то ещё - сохраняем в Delayed*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern (var e e.vardata)))e.Clashes (Delayed e.DelCl))(s.Log))
+		= <ClashLeft 
+			((e.equations)(e.restrictions)(e.assignments)
+			(e.Clashes (Delayed e.DelCl (('F')(e.Expr) to (e.Pattern (var e e.vardata)))))
+			(s.Log))
+		>;
+/*15. все прочие варианты - сопоставление невыполнимо и коллапсирует*/
+	((e.equations)(e.restrictions)(e.assignments)(((e.Expr) to (e.Pattern))e.Clashes)(s.Log))= (Zero);
+}
+
+
+
+/*
+Выделение тех отложенных сопоставлений, в которые были внесены упрощающие изменения
+((e.UnsuccessfulClashes)(e.equations)(e.restrictions)(e.assignments)(e.DelayedClashes)(s.Log))=>
+тот же вых.формат, что и у ClashLeft
+*/
+FindProcessibleClashes {
+/*1. Отложенных сопоставлений не осталось*/
+	((e.UnsuccessfulClashes)(e.equations)(e.restrictions)(e.assignments)()(s.Log))=
+				<SolveEquations ((e.equations)(e.restrictions)(e.assignments)((Delayed e.UnsuccessfulClashes))(s.Log))>;
+/*2. Данное отложенное сопоставление содержит существенные изменения по сравнению с исходным отложенным вариантом -
+новая попытка разрешения*/
+	((e.UnsuccessfulClashes)(e.equations)(e.restrictions)(e.assignments)((('T')e.Clash)e.OtherClashes)(s.Log))=
+				<ClashLeft (e.equations)(e.restrictions)(e.assignments)
+					((e.Clash)(Delayed e.OtherClashes e.UnsuccessfulClashes))(s.Log)>;
+/*3. В противном случае это сопоставление превращается в уравнение как есть*/
+	((e.UnsuccessfulClashes)(e.equations)(e.restrictions)(e.assignments)(((s.Log)e.Clash)e.OtherClashes)(s.Log1))=
+				<FindProcessibleClashes	((e.UnsuccessfulClashes ((s.Log)e.Clash))(e.equations)(e.restrictions)(e.assignments)
+					(e.OtherClashes)(s.Log1))>;
+}
+
+/*проверка того, является ли выражение выражением без переменных и параметров
+e.Expr => s.Log*/
+IfAFixedExpression {
+	= 'T';
+	s.1 e.1 = <IfAFixedExpression e.1>;
+	('*' e.1) e.2 = <LogAnd <IfAFixedExpression e.1><IfAFixedExpression e.2>>;
+	e.Z = 'F';
+}
+
+/*обработка равенства вызова и куска шаблона:
+если кусок шаблона - константное выражение, подстановка его вместо вызова и сохранение равенства в Desired
+иначе просто сохранение равенства в Desired
+*/
+ProcessNewSimpleCallCondition {
+	('T')(AreEqual (('F')(call e.call))(('F')e.Pattern))(e.equations (Desired e.desired))(e.restrictions)(e.assignments)(e.Clashes)=
+		<SubstituteCallFormat (assign (call e.call) (e.Pattern))
+                    (e.equations (Desired e.desired (AreEqual (('F')(call e.call))(('F')e.Pattern))))(e.restrictions)(e.assignments)(e.Clashes)
+                >;
+
+        ('F')(AreEqual (('F')(call e.call))(('F')e.Pattern))(e.equations(Desired e.calls))(e.restrictions)(e.assignments)(e.Clashes)=
+		(e.equations (Desired e.calls (AreEqual (('F')(call e.call))(('F')e.Pattern))))(e.restrictions)(e.assignments)(e.Clashes)('N');
+		
+}
+
+/*Добавление назначения новой переменной шаблона
+(assign (var e.vardata)(e.Expr){or (e.Expr)}^*)(e.equations)(e.calls)(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =>
+(e.equations)(e.calls)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+Если она уникальна - просто подстановка в равенства
+Иначе пытаемся предварительно разрешить равенство двух найденных значений переменной
+*/
+AddNewAssignment {
+	(assign (var e.vardata)(e.Expr))(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+				(<SubstituteInEqualities ((assign (var e.vardata)(e.Expr)))e.equations>)
+				(e.restrictions)(e.assignments (assign (var e.vardata)(e.Expr)))
+				(e.Clashes)
+				(s.Log);
+/*	(assign (var e.vardata)(e.Expr1) or (e.Expr2))(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+				<ProcessEqualityLeft 
+					(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)
+					(AreEqual (e.Expr1) (e.Expr2))>;*/
+/*ИЗМЕНЕНО 11.06*/
+	(assign (var e.vardata)(e.Expr1) or (e.Expr2))(e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log) =
+					((AreEqual (('F')e.Expr1) (('F')e.Expr2))e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log);
+}
+
+/*(assign (var e.vardata)(e.Expr))(e.assignments) => (assign (var e.vardata)(e.Expr) or (e.Expr2)) |(assign (var e.vardata)(e.Expr))
+проверяем, уникально ли вновь найденное назначение переменной шаблона
+*/
+CheckNewAssignment {
+	(assign (var e.vardata)(e.Expr))((assign (var e.vardata)(e.Expr2)) e.assignments) =
+		(assign (var e.vardata)(e.Expr) or (e.Expr2));
+	(assign (var e.vardata)(e.Expr))() = (assign (var e.vardata)(e.Expr));
+	(assign (var e.vardata)(e.Expr))((assign (var e.vardata2)(e.Expr2)) e.assignments) =
+		<CheckNewAssignment (assign (var e.vardata)(e.Expr))(e.assignments)>;
+}
+
+/*Сперва заменяем все вхождения переменных в определение для параметра свежими параметрами*/
+SubstituteNewRestriction { (assign (s.class s.type t.name) (e.Val)) e.Conf =
+		<SubNewRestr0 <FindParameterAssignments ()()(assign (s.class s.type t.name) (e.Val))> e.Conf>;
+}
+
+SubNewRestr0 {
+	(Restrictions (assign (s.class s.type t.name) (e.Val)))(Other )(e.Equalities)
+	(e.Restrictions)(e.Assignments)(e.Clashes) =
+		<SubstituteNewRestriction1 (assign (s.class s.type t.name) (e.Val))
+			(e.Equalities)
+			(e.Restrictions)(e.Assignments)(e.Clashes)>;
+	(Restrictions (assign (s.class s.type t.name) (e.Val)))(Other e.newasgmnts)(e.Equalities)
+	(e.Restrictions)(e.Assignments)(e.Clashes) =
+		<SubstituteNewRestriction1 (assign (s.class s.type t.name) (e.Val))
+			(<SubstituteInEqualities (e.newasgmnts) e.Equalities>)
+			(e.Restrictions)(e.Assignments e.newasgmnts)(e.Clashes)>;
+		
+}
+
+/*Вспомогательная функция, подставляющая новое сужение во все имеющиеся данные шага прогонки*/
+SubstituteNewRestriction1
+{ (assign (s.class s.type t.name) (e.Val))(e.Equalities)(e.Restrictions)(e.Assignments)(e.Clashes) =
+		(<SubstituteInEqualities ((assign (s.class s.type t.name) (e.Val))) e.Equalities>)
+/*		(<SubstituteInAssignments (assign (s.class s.type t.name) (e.Val)) e.Restrictions> (assign (s.class s.type t.name) (e.Val)))*/
+		(e.Restrictions (assign (s.class s.type t.name) (e.Val)))
+		(<SubstituteInAssignments (assign (s.class s.type t.name) (e.Val)) e.Assignments>)
+		(<SubstituteInClashes (assign (s.class s.type t.name) (e.Val)) e.Clashes>)('T');
+
+}
+
+SubstituteInAssignments
+{
+	(assign (e.Name) (e.Val)) = ;
+	(assign (e.Name) (e.Val))(assign (e.Name2)(e.Val2))e.Assignments =
+		(assign (e.Name2) (<Substitute ((assign (e.Name) (e.Val))) e.Val2>))<SubstituteInAssignments (assign (e.Name) (e.Val)) e.Assignments>;
+}
+
+SubstituteInClashes
+{
+	(assign (e.Name) (e.Val))(Delayed e.DelCl) = (Delayed <SubstituteInDelayedClashes (assign (e.Name) (e.Val)) e.DelCl>);
+	(assign (e.Name) (e.Val))((e.Expr) to (e.Pattern)) e.Clashes = 
+		((<Substitute ((assign (e.Name) (e.Val))) e.Expr>) to (e.Pattern))
+		<SubstituteInClashes (assign (e.Name) (e.Val)) e.Clashes>;
+}
+
+SubstituteInDelayedClashes
+{
+	(assign (e.Name) (e.Val)) = ;
+	(assign (e.Name) (e.Val))((s.Log)(e.Expr) to (e.Pattern)) e.Clashes = 
+		((s.Log)(<Substitute ((assign (e.Name) (e.Val))) e.Expr>) to (e.Pattern))
+		<SubstituteInDelayedClashes (assign (e.Name) (e.Val)) e.Clashes>;
+}
+
+/*Вспомогательная функция, подставляющая выход вызова во все имеющиеся данные шага прогонки*/
+SubstituteCallFormat
+{ (assign (call t.fname t.fargs)(e.Val))(e.Equalities (Desired e.calls))(e.Restrictions)(e.Assignments)(e.Clashes)(s.Log) 
+	= <SubstituteCallFormat1 
+		(assign (call t.fname t.fargs)(e.Val))
+		(e.Equalities (Desired <CheckNewEq4Multiplicity ()(e.calls)(AreEqual (('F')(call t.fname t.fargs))(('F')e.Val))>))
+		(e.Restrictions)(e.Assignments)(e.Clashes)(s.Log)
+	>;
+
+}
+
+SubstituteCallFormat1
+{ (assign (call t.fname t.fargs)(e.Val))(e.Equalities )(e.Restrictions)(e.Assignments)(e.Clashes)(s.Log) 
+		=
+		(<SubstituteCallInEqualities (assign (call t.fname t.fargs)(e.Val)) e.Equalities>)
+		(<SubstituteCall (assign (call t.fname t.fargs)(e.Val)) e.Restrictions>)
+		(<SubstituteCall (assign (call t.fname t.fargs)(e.Val)) e.Assignments>)
+		(<SubstituteCallInClashes (assign (call t.fname t.fargs)(e.Val)) e.Clashes>)('N');
+}
+
+SubstituteCallInClashes
+{
+	(assign (e.Name) (e.Val))(Delayed e.DelCl) = (Delayed <SubstituteCallInDelayedClashes (assign (e.Name) (e.Val)) e.DelCl>);
+	(assign (e.Name) (e.Val))((e.Expr) to (e.Pattern)) e.Clashes = 
+		((<SubstituteCall (assign (e.Name) (e.Val)) e.Expr>) to (e.Pattern))
+		<SubstituteCallInClashes (assign (e.Name) (e.Val)) e.Clashes>;
+}
+
+SubstituteCallInDelayedClashes
+{
+	(assign (e.Name) (e.Val)) = ;
+	(assign t.CallName (e.Val))((s.Log)(t.CallName e.Expr) to (e.Pattern)) e.Clashes = 
+		(('T')(e.Val <SubstituteCall (assign t.CallName (e.Val)) e.Expr>) to (e.Pattern))
+		<SubstituteCallInDelayedClashes (assign t.CallName (e.Val)) e.Clashes>;
+	(assign t.CallName (e.Val))((s.Log)(e.Expr t.CallName) to (e.Pattern)) e.Clashes = 
+		(('T')(<SubstituteCall (assign t.CallName (e.Val)) e.Expr> e.Val) to (e.Pattern))
+		<SubstituteCallInDelayedClashes (assign t.CallName (e.Val)) e.Clashes>;
+	(assign (e.Name) (e.Val))((s.Log)(e.Expr) to (e.Pattern)) e.Clashes = 
+		((s.Log)(<SubstituteCall (assign (e.Name) (e.Val)) e.Expr>) to (e.Pattern))
+		<SubstituteCallInDelayedClashes (assign (e.Name) (e.Val)) e.Clashes>;
+}
+
+* Применение подстановки к равенству - отличие от простой подстановки в том, что запоминается, были
+* ли внесены в равенство изменения в крайнем левом или крайнем правом терме
+* Вход (e.Subst)(AreEqual ((s.Log)e.Expr1)((s.Log)e.Expr2)+)^*(Desired e.Equalities)
+* Выход (AreEqual ((s.Log)e.Expr1)((s.Log)e.Expr2)+)
+
+$ENTRY SubstituteInEqualities {
+        ()e.Expr = e.Expr;
+	(e.Subst) = ;
+	(t.assignment e.Subst)(Desired e.CallConditions) = (Desired <SubstituteInEqualities (e.Subst) <SubstituteInEqualities (t.assignment) e.CallConditions>>);
+	
+	(t.asgn e.Subst)(AreEqual ((s.Log1)e.Expr1)((s.Log2)e.Expr2)e.OtherExpr)e.Equalities =
+		<SubstituteInEqualities (e.Subst)(AreEqual 
+			(<FirstSubInEquality (s.Log1)()(t.asgn) e.Expr1>)
+			(<FirstSubInEquality (s.Log2)()(t.asgn) e.Expr2>)
+			<SubOtherEqualities (t.asgn) e.OtherExpr>
+		)
+		<SubstituteInEqualities (t.asgn e.Subst)e.Equalities>>;
+}
+
+SubOtherEqualities {
+	(e.Subst) =;
+	(e.Subst)((s.Log)e.Expr)e.OtherExpr = (<FirstSubInEquality (s.Log)()(e.Subst)e.Expr>)<SubOtherEqualities (e.Subst)e.OtherExpr>;
+}
+
+/*Отмечаем, если существенно уточняется самая первая либо самая последняя свободная переменная/параметр в части уравнения*/
+FirstSubInEquality {
+/*самая левая переменная уточняется слева объектным термом либо пустым выражением*/
+	(s.Log)()((assign (var e t.varname) (s.Sym e.Val))) (var e t.varname)e.RS2 = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression e.Val>>)(s.Sym e.Val)((assign (var e t.varname) (s.Sym e.Val))) e.RS2>;
+	(s.Log)()((assign (var e t.varname) ())) (var e t.varname)e.RS2 = 
+		<SubInEquality ('T')()((assign (var e t.varname) ())) e.RS2>;
+	(s.Log)()((assign (var e t.varname) (('*' e.Val1)e.Val2))) (var e t.varname)e.RS2 = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression ('*' e.Val1)e.Val2>>)(('*' e.Val1)e.Val2)((assign (var e t.varname) (('*' e.Val1)e.Val2))) e.RS2>;
+/*самый левый параметр уточняется слева объектным термом либо пустым выражением*/
+	(s.Log)()((assign (par e t.varname) ())) (par e t.varname)e.RS2 = 
+		<SubInEquality ('T')()((assign (par e t.varname) ())) e.RS2>;
+	(s.Log)()((assign (par e t.varname) (s.Sym e.Val))) (par e t.varname)e.RS2 = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression e.Val>>)(s.Sym e.Val)((assign (par e t.varname) (s.Sym e.Val))) e.RS2>;
+	(s.Log)()((assign (par e t.varname) (('*'e.Val1)e.Val2))) (par e t.varname)e.RS2 = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression ('*' e.Val1)e.Val2>>)(('*'e.Val1)e.Val2)((assign (par e t.varname) (('*'e.Val1)e.Val2))) e.RS2>;
+/*самый левый вызов уточняется слева объектным термом либо пустым выражением*/
+	(s.Log)()((assign (call t.fname t.args) ())) (call t.fname t.args)e.RS2 = 
+		<SubCallInEquality ('T')()((assign (call t.fname t.args) ())) e.RS2>;
+	(s.Log)()((assign (call t.fname t.args) (s.Sym e.Val))) (call t.fname t.args)e.RS2 = 
+		<SubCallInEquality (<LogOr 'N'<IfAFixedExpression e.Val>>)(s.Sym e.Val)((assign (call t.fname t.args) (s.Sym e.Val))) e.RS2>;
+	(s.Log)()((assign (call t.fname t.args) (('*'e.Val1)e.Val2))) (call t.fname t.args) e.RS2 = 
+		<SubCallInEquality (<LogOr 'N'<IfAFixedExpression ('*' e.Val1)e.Val2>>)(('*'e.Val1)e.Val2)((assign (call t.fname t.args) (('*'e.Val1)e.Val2))) e.RS2>;
+
+/*самая правая переменная уточняется справа объектным термом либо пустым выражением*/
+	(s.Log)()((assign (var e t.varname) ())) e.RS2 (var e t.varname) = 
+		<SubInEquality ('T')()((assign (var e t.varname) ())) e.RS2>;
+	(s.Log)()((assign (var e t.varname) (e.Val s.Sym))) e.RS2 (var e t.varname) = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression e.Val>>)()((assign (var e t.varname) (e.Val s.Sym))) e.RS2 (var e t.varname)>;
+	(s.Log)()((assign (var e t.varname) (e.Val2('*'e.Val1)))) e.RS2 (var e t.varname) = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression e.Val2('*'e.Val1)>>)()((assign (var e t.varname) (e.Val2('*'e.Val1)))) e.RS2 (var e t.varname)>;
+
+
+/*самый правый параметр уточняется справа объектным термом либо пустым выражением*/
+	(s.Log)()((assign (par e t.varname) ())) e.RS2 (par e t.varname) = 
+		<SubInEquality ('T')()((assign (par e t.varname) ())) e.RS2>;
+	(s.Log)()((assign (par e t.varname) (e.Val s.Sym))) e.RS2 (par e t.varname) = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression e.Val>>)()((assign (par e t.varname) (e.Val s.Sym))) e.RS2 (par e t.varname)>;
+	(s.Log)()((assign (par e t.varname) (e.Val2('*'e.Val1)))) e.RS2 (par e t.varname) = 
+		<SubInEquality (<LogOr 'N'<IfAFixedExpression e.Val2('*'e.Val1)>>)()((assign (par e t.varname) (e.Val2('*'e.Val1)))) e.RS2 (par e t.varname)>;
+
+/*самый правый вызов уточняется справа объектным термом либо пустым выражением*/
+	(s.Log)()((assign (call t.fname t.args) ())) e.RS2 (call t.fname t.args) = 
+		<SubCallInEquality ('T')()((assign (call t.fname t.args) ())) e.RS2>;
+	(s.Log)()((assign (call t.fname t.args) (e.Val s.Sym))) e.RS2 (call t.fname t.args) = 
+		<SubCallInEquality (<LogOr 'N'<IfAFixedExpression e.Val>>)()((assign (call t.fname t.args) (e.Val s.Sym))) e.RS2 (call t.fname t.args)>;
+	(s.Log)()((assign (call t.fname t.args) (e.Val2('*'e.Val1)))) e.RS2 (call t.fname t.args) = 
+		<SubCallInEquality (<LogOr 'N'<IfAFixedExpression e.Val2('*'e.Val1)>>)()((assign (call t.fname t.args) (e.Val2('*'e.Val1)))) e.RS2 (call t.fname t.args)>;
+
+/*в противном случае отметку об изменениях не меняем*/
+	(s.Log)()((assign (call e.Call) (e.Val))) e.RS2 = 
+		<SubCallInEquality (s.Log)()((assign (call e.Call) (e.Val))) e.RS2>;	
+
+(s.Log)()((assign (e.Name) (e.Val))) e.RS2 = 
+		<SubInEquality (s.Log)()((assign (e.Name) (e.Val))) e.RS2>;	
+}
+
+SubInEquality {
+	(s.Log)(e.Expression)(e.Subst) = (s.Log)e.Expression;
+	(s.Log)(e.Expression)(e.Subst) s.1 e.RightSide =  <SubInEquality (s.Log)(e.Expression s.1)(e.Subst) e.RightSide>;
+	(s.Log)(e.Expression)(e.Subst) ('*' e.RightSide) e.RS2 = 
+		<MergeSubsForEqBrackets (e.Expression)('*' <SubInEquality (s.Log)()(e.Subst) e.RightSide>) 
+		<SubInEquality (s.Log)()(e.Subst) e.RS2>>;
+* Вариант лишь для одноместных функций
+	(s.Log)(e.Expression)(e.Subst) (call e.functionname (args (arg e.arg1)))e.RS2 = 
+		<MergeSubsForEqCalls (e.Expression)
+						(call e.functionname (args (arg <SubInEquality (s.Log)()(e.Subst) e.arg1>))) 
+		 <SubInEquality (s.Log)()(e.Subst) e.RS2>>;
+
+	(s.Log)(e.Expression)(e.varsorpars) t.Name e.RS2 = 
+		<SubInEquality (s.Log)(e.Expression <FindVariableValue (e.varsorpars)t.Name>)(e.varsorpars) e.RS2>;
+/*	(s.Log)(e.Expression)((assign (par s.vartype t.varname) (e.Val))) (par s.vartype t.varname)e.RS2 = 
+		<SubInEquality (s.Log)(e.Expression e.Val)((assign (par s.vartype t.varname) (e.Val))) e.RS2>;*/
+		
+	(s.Log)(e.Expression)(e.Subst) t.1 e.RS2 = 
+		<SubInEquality (s.Log)(e.Expression t.1)(e.Subst) e.RS2>;
+}
+
+MergeSubsForEqBrackets {
+/*	(e.Beginning)('*'(e.ExpInBracket)('F'))(e.ExpAfter)(e.Eq2)(s.LogAfter)= ('F');
+	(e.Beginning)('*'(s.LogInBracket)e.ExpInBracket)('F')e.ExpAfter= ('F');*/
+	(e.Beginning)('*'(s.LogInBracket)e.ExpInBracket)(s.LogAfter)e.ExpAfter =
+		(<LogOr s.LogInBracket s.LogAfter>)e.Beginning ('*'e.ExpInBracket)e.ExpAfter;
+}
+
+*(e.Beginning)(call e.functionname (args (arg (e.ExpInCall)(s.LogInCall))))(e.ExpAfter)(s.LogAfter)
+MergeSubsForEqCalls {
+/*	(e.Beginning)(call e.functionname (args (arg ('F') e.ExpInCall)))(s.LogAfter)e.ExpAfter= ('F');
+	(e.Beginning)(call e.functionname (args (arg (s.LogInCall)e.ExpInCall)))('F') e.ExpAfter= ('F');*/
+	(e.Beginning)(call e.functionname (args (arg (s.LogInCall)e.ExpInCall)))(s.LogAfter)e.ExpAfter =
+		  (<LogOr s.LogInCall s.LogAfter>)e.Beginning (call e.functionname (args (arg e.ExpInCall)))e.ExpAfter;
+}
+
+SubstituteCallInEqualities {
+	(assign (call t.fname t.farg)(e.Val))(Desired e.Equalities) = 
+		(Desired <SubstituteCallInSimpleEqualities (assign (call t.fname t.farg)(e.Val))e.Equalities>); 
+	(e.Subst)(AreEqual ((s.Log1)e.Expr1)((s.Log2)e.Expr2)e.OtherExpr)e.Equalities =
+	(AreEqual (<FirstSubInEquality (s.Log1)()((e.Subst))e.Expr1>)(<FirstSubInEquality (s.Log2)()((e.Subst))e.Expr2>)
+	<SubCallOtherEqualities (e.Subst) e.OtherExpr>)<SubstituteCallInEqualities (e.Subst)e.Equalities>;
+}
+
+SubstituteCallInSimpleEqualities {
+	=;
+	(assign (call t.fname t.farg)(e.Val)) = (AreEqual (('F')(call t.fname t.farg)) (('F')e.Val)); 
+
+	(e.Subst)(AreEqual ((s.Log1)(call e.fcall))((s.Log2)e.Expr2))e.Equalities =
+	(AreEqual ((s.Log1)(call e.fcall))(<FirstSubInEquality (s.Log2)()((e.Subst))e.Expr2>))
+	<SubstituteCallInSimpleEqualities (e.Subst)e.Equalities>;
+}
+
+SubCallOtherEqualities {
+	(e.Subst) =;
+	(e.Subst)((s.Log)e.Expr)e.OtherExpr = (<FirstSubInEquality (s.Log)()((e.Subst))e.Expr>)<SubCallOtherEqualities (e.Subst)e.OtherExpr>;
+}
+
+SubCallInEquality {
+	(s.Log)(e.Expression)(e.Subst) = (s.Log)e.Expression;
+	(s.Log)(e.Expression)(e.Subst) s.1 e.RightSide =  <SubInEquality (s.Log)(e.Expression s.1)(e.Subst) e.RightSide>;
+	(s.Log)(e.Expression)(e.Subst) ('*' e.RightSide) e.RS2 = 
+		<MergeSubsForEqBrackets (e.Expression)('*' <SubCallInEquality (s.Log)()(e.Subst) e.RightSide>) 
+		<SubCallInEquality (s.Log)()(e.Subst) e.RS2>>;
+* Вариант лишь для одноместных функций
+	(s.Log)(e.Expression)(assign (call t.fname (args t.arg))(e.Val)) (call e.functionname (args t.arg))e.RS2 = 
+		<SubCallInEquality ('T')(e.Expression e.Val)(assign (call t.fname (args t.arg))(e.Val)) e.RS2>;
+	(s.Log)(e.Expression)(e.Subst) (call e.fname (args (arg e.arg1)))e.RS2 = 
+		<MergeSubsForEqCalls (e.Expression)
+						(call e.fname (args (arg <SubCallInEquality (s.Log)()(e.Subst) e.arg1>))) 
+		<SubCallInEquality (s.Log)()(e.Subst) e.RS2>>;
+
+	(s.Log)(e.Expression)(e.Subst) t.1 e.RS2 = 
+		<SubInEquality (s.Log)(e.Expression t.1)(e.Subst) e.RS2>;
+}
+
+SubstituteCall {
+	(e.Subst) = ;
+	(e.Subst) s.1 e.RightSide = s.1 <SubstituteCall (e.Subst) e.RightSide>;
+	(e.Subst) ('*' e.RightSide) e.RS2 = 
+		('*' <SubstituteCall (e.Subst) e.RightSide>) 
+		<SubstituteCall (e.Subst) e.RS2>;
+* Вариант лишь для одноместных функций
+	(assign t.call(e.Val)) t.call e.RS2 = 
+		e.Val	<SubstituteCall (assign t.call(e.Val)) e.RS2>;
+	(e.Subst) (call e.functionname (args (arg e.arg1)))e.RS2 = 
+		(call e.functionname (args (arg <SubstituteCall (e.Subst) e.arg1>))) 
+		<SubstituteCall (e.Subst) e.RS2>;
+	(e.Subst) (assign (e.VarorParId) (e.Val))e.RS2 = 
+		(assign (e.VarorParId) (<SubstituteCall (e.Subst)e.Val>))
+		<SubstituteCall (e.Subst) e.RS2>;
+	(e.Subst) (var s.vartype e.varname)e.RS2 = (var s.vartype e.varname)<SubstituteCall (e.Subst) e.RS2>;		
+	(e.Subst) (par s.vartype e.varname)e.RS2 = (par s.vartype e.varname)<SubstituteCall (e.Subst) e.RS2>;		
+	(e.Subst) (weval s.vartype e.varname)e.RS2 = (weval s.vartype e.varname)<SubstituteCall (e.Subst) e.RS2>;		
+}
+
+/*Подстановка в шаблон всех имеющихся в нем переменных с определенными значениями*/
+SubstitutionAttempt 
+{
+	() e.Pattern = e.Pattern;
+	(e.assignments)  = ;
+	(e.assignments) s.1 e.Pattern = s.1 <SubstitutionAttempt (e.assignments) e.Pattern>;
+	(e.assignments) ('*' e.Patt1) e.Patt2 = ('*'<SubstitutionAttempt (e.assignments) e.Patt1>)<SubstitutionAttempt (e.assignments) e.Patt2>;
+	(e.assignments) (var e.vardata) e.Pattern = <FindVariableValue (e.assignments) (var e.vardata)>
+							<SubstitutionAttempt (e.assignments) e.Pattern>;
+}
+
+/*************************************************************************************
+
+                           КОНЕЦ ПРОГОНКИ
+
+*************************************************************************************/
+
+
+*----------------------------------------------------------------------------------------------------------------------------------
+
+
+/*******************************************************************************
+
+                 ЗАГЛУШКИ
+
+******************************************************************************/
+
+AAA {=; }
