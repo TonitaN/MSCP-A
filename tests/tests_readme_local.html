@@ -1,0 +1,346 @@
+<html><HEAD>
+
+<TITLE> MSCP-A: краткие пояснения к примерам </TITLE>
+</HEAD>
+
+<body background="fon.gif" bgcolor="#FFFFFF" text="#000000" bgproperties="fixed">
+  <a name="TopOfFile"></a>
+  <p valign=middle align=center>
+  
+<hr>
+
+<hr>
+
+<H2><a name="Syntax"><u>MSCP-A: краткие пояснения к примерам </u></a></H2>
+
+<H3>Содержание:</H3>
+
+<table border="0" cellpadding="0" cellspacing="0" width="60%">   
+  <tr> 
+        <td width="50%" align="left">
+          <ul>
+            <li><a href ="#Fabc">Fabc</a></li>
+            <li><a href ="#FabcFin">Fabc (конечный алфавит)</a></li>
+            <li><a href ="#SqSum">SqSum </a></li>
+            <li><a href ="#Fib">Fibonacci</a></li>
+            <li><a href ="#Prefix">Prefix</a></li>
+            <li><a href ="#Prefix2">Prefix2</a></li>
+            <li><a href ="#PrefixA">Prefix of A's</a></li>
+            <li><a href ="#PrefixPlusAB">Prefix plus AB</a></li>
+
+            <li><a href ="#EqsAsRestr">Equations as a condition</a></li>
+            <li><a href ="#RecProtocolCorr">Correct protocol with a loop</a></li>
+            <li><a href ="#RecProtocolInc">Incorrect protocol with a loop</a></li>
+         </ul>
+        </td> 
+        <td width="50%" align="left">
+          <ul>
+            <li><a href ="#CheckB">CheckForB</a></li>
+            <li><a href ="#CheckB2">CheckForB усложненный</a></li>
+            <li><a href ="#Look">WordEq</a></li>
+            <li><a href ="#Order">InfCall</a></li>
+            <li><a href ="#PalAB">PalAB</a></li>
+
+            <li><a href ="#BAincorrect">Not only 'A'-s</a></li>
+            <li><a href ="#Singapore">Trinh et al test</a></li>
+	    <li><a href ="#Sweden">Abdulla et al test</a></li>
+	    <li><a href ="#OpenVar">Open vars test</a></li>
+	    <li><a href ="#NonQuad">Non-quadratic equation</a></li>
+	    <li><a href ="#ScriptScript">Incorrect sanitization</a></li>
+           <li><a href ="#ScriptIp">Correct sanitization - ip</a></li>
+           <li><a href ="#ScriptBrackets">Correct sanitization - brackets</a></li>
+         </ul>
+        </td> 
+  </tr>
+</table>
+
+<hr>
+  
+ <table border=1 cellspacing=0 cellpadding=1 align=center> <tr>
+
+
+</tr></table>
+  
+  <p><b>Пример #1 (<a name="Fabc">Fabc</a>):</b></p>
+
+  <A href="test_Fabc.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Стандартный тест замены в строке букв A на B, затем B на С. &nbsp;</li>
+      </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #2 (<a name="FabcFin">Fabc (конечный алфавит)</a>):</b></p>
+
+  <A href="test_Fabc_finalph.ref">Исходный текст и результат</A>  
+  
+  <blockquote>
+    <ul>
+      <li>Стандартный тест замены в строке букв A на B, затем B на С в алфавите {A,B,C}. &nbsp;</li>
+    </ul>
+  </blockquote> 
+
+<hr>
+  <p><b>Пример #3 (<a name="SqSum">SqSum</a>):</b></p>
+
+  <A href="test_SqSum.ref">Исходный текст и результат</A>  
+  
+  <blockquote>
+    <ul>
+      <li>Частично специализированный аргумент подается функции, вычисляющей сумму квадратов
+в унарной системе счисления. Определения арифметических функций используют ассоциативное приписывание.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+  <p><b>Пример #4 (<a name="Fib">Fibonacci</a>):</b></p>
+
+  <A href="test_Fib.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Частично специализированный аргумент подается функции, вычисляющей n-ое число
+Фибоначчи в унарной системе счисления.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+  <p><b>Пример #5 (<a name="Prefix">Prefix</a>):</b></p>
+
+  <A href="test_Prefix.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест корректности функции проверки на префикс при использовании ассоциативного приписывания.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+
+  <p><b>Пример #6 (<a name="Prefix2">Prefix2</a>):</b></p>
+
+  </A><A href="test_StrangePrefix.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест корректности функции проверки на префикс при использовании ассоциативного приписывания, определенного через цикл с конца.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+
+  <p><b>Пример #7 (<a name="CheckB">CheckForB</a>)</b></p>
+
+  <A href="test_ba1.ref">Исходный текст и результат</A>  
+
+  <blockquote>
+    <ul>
+      <li>Дана функция, порождающая только буквы А. Проверить, не стоит ли в конце ее результата буква В.
+Это осуществляется за счет специальных приемов при обобщении ассоциативных данных.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+
+  <p><b>Пример #8 (<a name="CheckB2">CheckForB2</a>)</b></p>
+
+  <A href="test_ba2.ref">Исходный текст и результат</A>  
+  
+  <blockquote>
+    <ul>
+      <li>Задача та же, что и в предыдущем примере. Но теперь проверить надо, не чем заканчивается строка,
+а содержит ли она буквы В вообще. Причем проверка эта осуществляется с конца строки. </li>
+    </ul>
+  </blockquote>
+
+  <hr>
+
+  <p><b>Пример #9 (<a name="Look">Word Equations</a>)</b></p>
+
+  <A href="test_look.ref">Исходный текст и результат</A>  
+  
+  <blockquote>
+    <ul>
+      <li>Наличие двух одинаковых термовых переменных в образце функции приводит к тому,
+что для разрешения вопроса об успешном сопоставлении приходится решать уравнение в словах.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+  
+  <p><b>Пример #10 (<a name="Order">InfCall</a>)</b></p>
+
+  <A href="test_order.ref">Исходный текст и результат</A>  
+  
+  <blockquote>
+    <ul>
+      <li>Нормальный порядок вычислений на ассоциативных данных приводит к нетривиальному порядку вычисления
+функций в стеке.</li>
+    </ul>
+  </blockquote>
+
+  <hr>
+  
+  <p><b>Пример #11 (<a name="PalAB">PalAB</a>)</b></p>
+
+  <A href="test_PalPlusAB.ref">Исходный текст и результат</A>  
+  
+  <blockquote>
+    <ul>
+      <li>Тест на простые уравнения в словах. Если приписать к строке вначале префикс 'АВ', 
+          а затем инвертировать результат и приписать как суффикс к исходной строке, то получившееся слово никогда не будет палиндромом. 
+      </li>
+    </ul>
+  </blockquote>
+
+  <hr>
+  
+  <p><b>Пример #12 (<a name="PrefixA">Prefix of A's</a>):</b></p>
+
+  <A href="test_PrefixA.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>В каких случаях префиксом слова 'A'xy будет слово x? Образцы в t-переменных, приписывание без цикла.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #13 (<a name="PrefixPlusAB">Prefix Plus AB</a>):</b></p>
+
+  <A href="test_ABplusPrefix.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>В каких случаях префиксом слова 'AB'xy будет слово x? Образцы в s-переменных, приписывание с конца.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #14 (<a name="BAincorrect">Not only 'A'-s</a>):</b></p>
+
+  <A href="test_BA_Incorrect.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Простой тест на удаление неверных гипотез-уравнений после обобщения.
+	Здесь такая гипотеза предполагает, что результат работы функции состоит из одних букв 'A', но проход по следующей ветви развертки опровергает её.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #15 (<a name="Singapore">Thinh et al test</a>):</b></p>
+
+  <A href="test_Singapore.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест взят из статьи 2016 года на CAV-2016:
+         MT. Trinh, DH. Chu, J. Jaffar. Progressive Reasoning over Recursively-Defined Strings. /
+         LNCS, Vol. 9779, pp: 218-240. Springer, 2016.
+ <!-- Progressive Reasoning over Recursively-Defined Strings / M.T.Trinh et al -->
+
+</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #16 (<a name="Sweden">Abdulla et al test</a>):</b></p>
+
+  <A href="test_Sweden.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест взят из статьи 2017 года: 
+          Parosh Aziz Abdulla, Mohamed Faouzi Atig, Yu-Fang Chen, Bui Phi Diep, Lukas Holik, Ahmed Rezine, Philipp Rummer.
+          Flatten and Conquer: A Framework for Efficient Analysis of String Constraints, // In:
+          Programming Language Design and Implementation (PLDI), 2017, Barcelona, Spain, /
+          SIGPLAN Not., Vol. 52(6), pages 602-617, ACM, 2017.
+          doi: http://doi.acm.org/10.1145/3140587.3062384
+        <!-- Flatten and Conquer. A Framework for Efficient Analysis of String Constraints / P.A.Abdulla et al. -->
+</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #17 (<a name="EqsAsRestr">Equations as a condition</a>):</b></p>
+
+  <A href="test_EqsAsRestr.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>В этом тесте уравнение на исходный параметр дано с самого начала.
+	С учетом этого уравнения разворачивается цикл.
+</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #18 (<a name="OpenVar">Open variables test</a>):</b></p>
+
+  <A href="test_OpenVars.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест на взаимодействие открытых переменных с условием, полученном при обобщении конфигураций.
+      </li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #19 (<a name="NonQuad">Non-quadratic equations test</a>):</b></p>
+
+  <A href="test_NonQuadratic.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест содержит неквадратичное уравнение. Комбинацией элементарных методов его удаётся решить.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #20 (<a name="RecProtocolCorr"></a>Correct protocol with a loop</a>):</b></p>
+
+  <A href="test_ProtoSafe.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест содержит некоторый протокол, работающий произвольное время, с рекурсивным условием корректности. Условие выполняется всегда.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #21 (<a name="RecProtocolInc"></a>Incorrect protocol with a loop</a>):</b></p>
+
+  <A href="test_ProtoUnsafe.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест содержит некоторый протокол, работающий произвольное время, с рекурсивным условием корректности. Условие не выполняется.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #22 (<a name="ScriptScript"></a>Incorrect sanitization</a>):</b></p>
+
+  <A href="test_Script1.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Показано, что процедура аудита, предложенная в данном тесте, некорректна.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #23 (<a name="ScriptIp"></a>Correct sanitization - ip</a>):</b></p>
+
+  <A href="test_Script.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест взят из статьи 2016 года на CAV-2016:
+         MT. Trinh, DH. Chu, J. Jaffar. Progressive Reasoning over Recursively-Defined Strings. /
+         LNCS, Vol. 9779, pp: 218-240. Springer, 2016.
+	Показано, что процедура аудита, предложенная в данном тесте, корректна.</li>
+    </ul>
+  </blockquote>
+  <hr>
+
+  <p><b>Пример #24 (<a name="ScriptBrackets"></a>Correct sanitization - brackets</a>):</b></p>
+
+  <A href="test_Script2.ref">Исходный текст и результат</A>  
+  <blockquote>
+    <ul>
+      <li>Тест взят из статьи 2016 года на CAV-2016:
+         MT. Trinh, DH. Chu, J. Jaffar. Progressive Reasoning over Recursively-Defined Strings. /
+         LNCS, Vol. 9779, pp: 218-240. Springer, 2016.
+	Показано, что процедура аудита, предложенная в данном тесте, корректна.</li>
+    </ul>
+  </blockquote>
+ </body>

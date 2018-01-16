@@ -1,6 +1,0 @@
-((ENTRY )Go (((Bracket  (Variable e x )))=((Call  (Fib 0 ) (Bracket  )(Bracket  (Variable e x ))))))
-
-((LOCAL )(Let 0 )(((Bracket  (Variable e 1002 ))(Bracket  (Variable e 1008 )))=((Call  (Fib 0 ) (Bracket  (Variable e 1002 ))(Bracket  (Variable e 1008 ))))))
-
-((LOCAL )(Fib 0 )(((Bracket  (Variable e 1002 ))(Bracket  ))=((Variable e 1002 )SS))(((Bracket  (Variable e 1002 ))(Bracket  S))=((Variable e 1002 )SSS))(((Bracket  (Variable e 1002 ))(Bracket  SS(Variable e 1242 )))=((Call  (Fib 0 ) (Bracket  (Call  (Let 0 ) (Bracket  (Variable e 1002 ))(Bracket  S(Variable e 1242 ))))(Bracket  (Variable e 1242 ))))))
-

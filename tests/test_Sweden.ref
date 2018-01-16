@@ -1,0 +1,61 @@
+/*
+ Тест взят из статьи 2017 года: 
+     Parosh Aziz Abdulla, Mohamed Faouzi Atig, Yu-Fang Chen, Bui Phi Diep, Lukas Holik, Ahmed Rezine, Philipp Rummer.
+     Flatten and conquer: a framework for efficient analysis of string constraints,
+     Programming Language Design and Implementation (PLDI), 2017, Barcelona, Spain, ACM, pages 602-617
+
+ В тесте предлагается проверить, выполнимо ли уравнение
+ 'A'wx = wy для каких-нибудь параметров y и x,
+ если известно, что w принадлежит следующему языку:
+
+ N -> 'A' N 'B' | N 'B' | EMPTY
+
+ Задача сводится к решению квадратичного уравнения для
+ переменной в некоторых ограничениях.
+
+ Суперкомпилятор определяет, что уравнение имеет решение
+ только w=EMPTY.
+*/
+
+
+/***********************************************/
+/*          исходная программа                 */
+/***********************************************/
+$ENTRY Go {
+ (e.y) (e.x) (e.3) =  <G0 (e.y) (e.x) (<Gram e.3>)>;
+}
+
+
+Gram {
+	'I' e.x = 'A' <Gram e.x> 'B';
+	'S' e.x = <Gram e.x> 'B';
+                = ;
+}
+
+G0 {
+	(e.y) (e.x) (e.w) = <G1 ('A' e.w e.x) (e.w e.y)>;
+}
+
+G1 {
+	t.1 t.1 = 'T';
+	t.1 t.2 = 'F';
+}
+
+/***********************************************/
+/*          остаточная программа               */
+/***********************************************/
+
+/*
+$ENTRY Go {
+ (e.1) (e.2) (e.3) =  <InputFormat_0 (e.3) (e.2) (e.1)>;
+}
+
+
+InputFormat_0 {
+ ('I' e.1) (e.2) (e.3) =  'F';
+ ('S' e.1) (e.2) (e.3) =  'F';
+ () (e.1) ('A' e.1) =  'T';
+ () (e.1) (e.2) =  'F';
+}
+
+*/

@@ -1,0 +1,151 @@
+/*
+  Модуль предварительного анализа определений функций входной программы суперкомпилятора.
+*/
+
+/*
+  Каждое описание функции оснащается информацией:
+  (Pattern s.Type)
+  (Recursion s.Type)
+
+*/
+
+/*
+  'T' - значит, что в образцах нет открытых е-переменных.
+  'N' - есть открытые е-переменные, но не повторные.
+  'F' - есть открытые повторные е-переменные.
+*/
+
+$EXTERN LogAnd, SetInsert;
+
+$ENTRY AssignFunctionFeatures {
+    e.Definitions = <RecursionTypes <AssignPatternTypes e.Definitions>>;
+}
+
+RecursionTypes {
+    Started (e.Dependencies) 
+        = <ProcessFunctionList Recursion (e.Dependencies)(e.Dependencies)>;
+    Started (e.Dependencies) t.Def e.RestDefs 
+        = <RecursionTypes Started (e.Dependencies <BaseRecursionType t.Def>) e.RestDefs>;
+    e.DefList
+        = <AssignRecursionTypes (<RecursionTypes Started ()e.DefList>) e.DefList>;
+}
+
+AssignRecursionTypes {
+    (e.Dependencies) /* EMPTY */ = /* EMPTY */;
+   (e.Dependencies) t.FDef e.Rest,
+   t.FDef : (t.fname e.Features (Sents e.Sents)),
+   e.Dependencies : e.1 (t.fname (s.Flag) e.Other) e.2
+       = (t.fname (Recursion s.Flag) e.Features (Sents e.Sents))<AssignRecursionTypes (e.1 e.2) e.Rest>;
+}
+
+AssignPatternTypes {
+    /* EMPTY */ = /* EMPTY */;
+    t.Def e.OtherDefs
+        = <PatternType t.Def><AssignPatternTypes e.OtherDefs>;
+}
+
+PatternType {
+    t.Definition,
+        t.Definition : (t.fname e.Features(Sents e.Rules))
+            = (t.fname e.Features (Pattern <PatternType Started ('T') e.Rules>)(Sents e.Rules));
+    Started (s.Log)((e.LHS)e.RHS) e.OtherRules,
+    <AnalyzePattern ()()e.LHS> : (e.VarSet),
+    e.VarSet :
+    {
+     e.1 (e.v1 t.var e.v2 t.var e.v3) e.2 = 'F';
+     e.1 (t.var1 t.var2 e.v) e.2          = <PatternType Started (<LogAnd s.Log 'N'>) e.OtherRules>;
+     e.Z                                  = <PatternType Started (s.Log)e.OtherRules>;
+    };
+    Started (s.Log) /* EMPTY */ = s.Log; 
+}
+
+AnalyzePattern {
+    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)('*' e.InBr)e.OutBr,
+    <AnalyzePattern ()()e.InBr> : ()(e.VarSetInBr)
+        = <AnalyzePattern (e.SetsOfOpenVars (e.VarSetInBr))(e.CurrentSetOfOpenVars)e.OutBr>;
+    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)(var e e.name)e.Rest
+        = <AnalyzePattern (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars (var e e.name)) e.Rest>;
+    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)t.Const e.Rest
+        = <AnalyzePattern (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars) e.Rest>;
+    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)
+        = (e.SetsOfOpenVars (e.CurrentSetOfOpenVars));
+}
+
+/*
+  Если функция не содержит в правых частях вызовов, значит, эта функция может быть
+  встроена. Помечаем такие функции флагом, чтобы при прогонке на них не действовало обобщение.
+
+  'T' - значит, что в правых частях нет вызовов функций.
+  'N' - вызовы функций есть, но только самой себя.
+  'F' - общего вида.
+*/
+    BaseRecursionType {
+    (t.fname e.Features (Sents e.Rules))
+        = <BaseRecursionType Started t.fname () e.Rules>;
+    Started t.fname (e.Dependencies) /* NO MORE RULES */,
+    e.Dependencies :
+    { /* EMPTY */        = (t.fname ('T')(DependsOn ));
+      (t.fname (s.Flag)) = (t.fname ('N')(DependsOn (t.fname ('N'))));
+      e.Rest             = (t.fname ('F')(DependsOn e.Rest));
+    };
+    Started t.fname (e.Dependencies) ((e.LHS) e.RHS) e.OtherRules,
+    <AnalyzeRightSide (e.Dependencies) e.RHS> : e.NewDependencies
+        = <BaseRecursionType Started t.fname (e.NewDependencies) e.OtherRules>;
+} 
+
+BaseParameterList {
+    = ;
+} 
+
+AnalyzeRightSide {
+    (e.FunSet) ('*' e.InBr) e.OutBr,
+    <AnalyzeRightSide (e.FunSet) e.InBr> : e.NewFunSet
+        = <AnalyzeRightSide (e.NewFunSet) e.OutBr>;
+    (e.FunSet) (call t.fname (args (arg e.Arg))) e.Rest,
+    <AnalyzeRightSide <SetInsert (t.fname ('F')) (e.FunSet)> e.Arg> : e.NewFunSet
+        = <AnalyzeRightSide (e.NewFunSet) e.Rest>;
+    (e.FunSet) t.SimpleTerm e.Rest
+        = <AnalyzeRightSide (e.FunSet) e.Rest>;
+    (e.FunSet) /* EMPTY */ = e.FunSet;
+}
+
+ProcessFunctionList {
+    s.Mode (e.FunListToProcess t.FunctionData)(e.Dependencies),
+        <ExtractDependencies s.Mode t.FunctionData e.Dependencies> : e.AddFunToProcess,
+        <RenewSets 1 (e.FunListToProcess)(e.AddFunToProcess)> : e.NewFunToProcess 
+        = <ProcessFunctionList 
+            s.Mode (e.NewFunToProcess)(<RenewSets 0 (e.Dependencies)(e.AddFunToProcess)> t.FunctionData)>;
+    s.Mode ()(e.Dependencies) = e.Dependencies;
+}
+
+ExtractDependencies {
+    Recursion t.FData e.FL,
+    t.FData : (t.fname ('T') (DependsOn )),
+    e.FL : e.FL1 (t.fname2 (s.Flag)(DependsOn e.D1 (t.fname (s.OtherFlag)) e.D2)) e.FL2
+        = <ChooseRecursionFlag (t.fname2 (s.Flag)(DependsOn e.D1 e.D2))><ExtractDependencies Recursion t.FData e.FL2>;
+    Recursion t.FData e.FL 
+        = /* EMPTY */;
+}
+
+ChooseRecursionFlag {
+    (t.fname (s.Flag) (DependsOn ))
+        = (t.fname ('T') (DependsOn ));
+    (t.fname (s.Flag) (DependsOn (t.fname (s.Flag2))))
+        = (t.fname ('N') (DependsOn (t.fname ('N'))));
+    (t.fname (s.Flag) (DependsOn e.OtherFun))
+        = (t.fname ('F') (DependsOn e.OtherFun));
+}
+
+RenewSets {
+    s.Mode (e.1 (t.Id e.Data) e.2)((t.Id e.Data2) e.3)
+        = <RenewSets s.Mode (e.1 (t.Id e.Data2) e.2)(e.3)>;
+    s.Mode (e.Rest)(t.El e.Different)
+        = <RenewSets s.Mode (e.Rest)(e.Different)><DropOrLeave s.Mode t.El>;
+    s.Mode (e.Rest)() 
+        = e.Rest;
+}
+
+DropOrLeave {
+    0 t.El = /* EMPTY */;
+    1 t.El = t.El;
+}

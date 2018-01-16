@@ -1,9 +1,9 @@
-
-/*Модуль функций решения диофантовых уравнений.
-
-Экспортируемые функции:
-SolveLinearDE
-Главная функция решения линейного диофантова уравнения на длины слов.
+/*
+    Модуль функций решения диофантовых уравнений.
+   
+   Экспортируемые функции:
+   SolveLinearDE
+   Главная функция решения линейного диофантова уравнения на длины слов.
 	(s.Flag)(AreEqual (e.Vars) ([NatNum] Const)) => ((Case (assign t.x (([NatNum] Const))t.xv)^+)^*)(s.Log)
 	где t.xv ::= ((weval t [Name])^*)
 	t.x ::= (weval e [Name])
@@ -11,289 +11,612 @@ SolveLinearDE
         s.Flag --- равен 'T', если все переменные в уравнении стоят с одной стороны, и 'F' иначе.
 */
 
-/*из модуля basics.ref*/
+/* из модуля basics.ref */
 $EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, FindTerm, RenewIndices, FreshIndex, CurrentIndex,MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
 
 Eq {
-e.z = e.z;}
+    e.z = e.z;
+}
 
-/*******************************************************************************
-
+/*
+******************************************************************************
+   
                  БЛОК ФУНКЦИЙ РЕШЕНИЯ ДИОФАНТОВЫХ УРАВНЕНИЙ
+   
+*****************************************************************************
+*/
 
-******************************************************************************/
 
-/*s.1 s.2 => s.Result
-Результат деления нацело s.1 на s.2, если делится, и 'F' иначе*/
+/*
+    s.1 s.2 => s.Result
+   Результат деления нацело s.1 на s.2, если делится, и 'F' иначе. 
+*/
+
 MyDiv {
- s.1 s.2
-    , <Div s.1 s.2> <Mod s.1 s.2>: { s.q 0 = s.q;
-                                     s.q s.r = 'F';
-                                   };
+     s.1 s.2, 
+     <Div s.1 s.2> <Mod s.1 s.2> : 
+         { s.q 0 = s.q;
+           s.q s.r = 'F';
+        };
 }
 
-/*[NatNum] [NatNum] => [NatNum] ([Number])([Number])
-Находим наибольший общий делитель s.x и s.y и возвращаем его и коэффициенты в соотношении Безу */
+/*
+    [NatNum] [NatNum] => [NatNum] ([Number])([Number])
+   Находим наибольший общий делитель s.x и s.y и возвращаем его и коэффициенты в соотношении Безу.
+*/
+
 GCD {
-s.x s.y  = <GCDAux s.x s.y (1) (0) (0) (1)>;
+    s.x s.y  = <GCDAux s.x s.y (1) (0) (0) (1)>;
 }
 
-/*Вспомогательная для предыдущей функции. Нужна, чтобы избавиться от протаскивания кучи констант при вызове GCD из
-других функций.
-[NonNegNumber][NonNegNumber]([Number])([Number])([Number])([Number]) => [NonNegNumber]([Number])([Number])
-
-В выходе --- первое число есть общий делитель,
-второе --- коэффициент при s.A в уравнении Безу 
-третье --- коэффициент при s.B
+/*
+    Вспомогательная для предыдущей функции. Нужна, чтобы избавиться от протаскивания кучи констант при вызове GCD из
+   других функций.
+   [NonNegNumber][NonNegNumber]([Number])([Number])([Number])([Number]) => [NonNegNumber]([Number])([Number])
+   
+   В выходе --- первое число есть общий делитель,
+   второе --- коэффициент при s.A в уравнении Безу, 
+   третье --- коэффициент при s.B.
 */
 GCDAux {
 	0 s.y (e.p) (e.q) (e.r) (e.s) = s.y (e.r) (e.s);
 	s.x 0 (e.p) (e.q) (e.r) (e.s) = s.x (e.p) (e.q);
-	s.x s.y (e.p) (e.q) (e.r) (e.s), <MyIfNotLess s.x s.y>:'T' = 
-		<GCDAux <Sub s.x s.y> s.y (<Sub e.p e.r>) (<Sub e.q e.s>) (e.r) (e.s)>;
-	s.x s.y (e.p) (e.q) (e.r) (e.s) = 
-		<GCDAux s.x <Sub s.y s.x> (e.p) (e.q) (<Sub e.r e.p>) (<Sub e.s e.q>)>;
-}
-
-/*Сортировка переменных так, чтобы последней стала с самой большой кратностью.
-([MS]) => ([MS]), где
-[MS] ::= ([NonNegNumber] t.Name)^*
-*/
-SortVars {
-	() = ();
-	((s.Num t.Name)) = ((s.Num t.Name)); 
-	((s.Num1 t.Name1)(s.Num2 t.Name2) e.Other) = 
-		(<SortVars1  (s.Num1 t.Name1)(s.Num2 t.Name2) e.Other>);
-}
-
-/*Вспомогательная для предыдущей, с дополнительным первым аргументом --- текущим максимумом.
-([NonNegNumber] t.Name)[MS] => [MS]
-*/
-SortVars1 {
-	(s.NumMax t.NameMax) = (s.NumMax t.NameMax); 
-	(s.NumMax t.NameMax) (s.NewMax t.NameNewMax) e.Other, <MyIfNotLess s.NumMax s.NewMax>: 'F' = 
-		(s.NumMax t.NameMax) 
-		<SortVars1 (s.NewMax t.NameNewMax) e.Other>;
-	(s.NumMax t.NameMax) (s.NotMax t.NameNotMax) e.Other = 
-		(s.NotMax t.NameNotMax) 
-		<SortVars1 (s.NumMax t.NameMax) e.Other>;
-}
-
-/*Функция решения линейного диофантова уравнения от 2 переменных.
-Уравнение имеет вид
-s.A*X + s.B*Y = C;
-(AreEqual (s.A (weval e [Name]))(s.B (weval e [Name]))(s.C Const)) => 
-(Case (assign (weval e [Name])(([NatNum] Const))((weval t [FreshName])^*))^+)^*
-*/
-SolveDE2Var {
-	(AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)), 
-	<GCD s.A s.B>: s.GCD (e.BCX)(e.BCY), 
-	<MyIfNotLess e.BCX 0>: s.Log =
-		<DecisionDE2Var2 s.Log
-				<MyDiv s.C s.GCD> s.GCD (e.BCX) (e.BCY)
-				(AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))
-		>;
-}
-
-/*По текущим значениям переменных -- коэффициентов Безу принимаем решение, что делаем дальше, и передаем управление
-генератору решений.
-s.Log ['F'|[NonNegNumber]] s.GCD (e.XBezu)(e.YBezu)(AreEqual (s.A (weval e [Name]))(s.B (weval e [Name]))(s.C Const)) => 
-(Case (assign (weval e [Name])(([NatNum] Const))((weval t [FreshName])^*))^+)^*
-*/
-DecisionDE2Var2 {
-/*1. с не делится на нод(а,b)=> решений нет*/
-	s.Log 'F' e.Bezu (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)) = ;
-
-/*2. первый к-т Безу равен 0. Решение вида B*Y=C и его вариации.*/
-	s.Log s.CG s.GCD (0) (s.BCY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)) = 
-		<SolveDE2Var1 
-			(0) 
-			(<Mul s.BCY s.CG>) 
-			(<Div s.B s.GCD>) 
-			(<Div s.A s.GCD>)
-			(AreEqual ((<Div s.A s.GCD> t.X)(<Div s.B s.GCD> t.Y)) (s.CG Const))
-		>;
-
-/*3. второй к-т Безу равен 0.  Решение вида A*X=C и его вариации.*/
-	s.Log s.CG s.GCD (s.BCX) (0) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)) = 
-		<SolveDE2Var1 
-			(0) 
-			(<Mul s.BCX s.CG>) 
-			(<Div s.A s.GCD>) 
-			(<Div s.B s.GCD>)
-			(AreEqual ((<Div s.B s.GCD> t.Y)(<Div s.A s.GCD> t.X)) (s.CG Const))
-		>;
-/*4. первый к-т Безу отрицателен => дополняем до неотрицательного за счет добавления элементов s.B/s.GCD.*/
-	'F' s.CG s.GCD ('-'s.BCX) (e.BCY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)) = 
-		<SolveDE2Var1 
-			<GetNNegSolutionDE2Var 
-				(<Div <Mul <Mul s.CG s.BCX> s.GCD> s.B>)
-				(<Mod <Mul <Mul s.CG s.BCX> s.GCD> s.B>)
-				(<Mul '-'s.BCX s.CG>)
-				(<Mul e.BCY s.CG>) 
-				(<Div s.A s.GCD>) 
-				(<Div s.B s.GCD>) 
-				(s.GCD)
-			>
-			(AreEqual ((<Div s.A s.GCD> t.X)(<Div s.B s.GCD> t.Y)) (s.CG Const))
-		>;
-/*5. второй к-т Безу отрицателен => меняем местами и дополняем до неотрицательных*/
-	'T' s.CG s.GCD (e.BCX) ('-'s.BCY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)) = 
-		<SolveDE2Var1 
-			<GetNNegSolutionDE2Var 
-				(<Div <Mul <Mul s.CG s.BCY> s.GCD> s.A>)
-				(<Mod <Mul <Mul s.CG s.BCY> s.GCD> s.A>)
-				(<Mul '-'s.BCY s.CG>)
-				(<Mul e.BCX s.CG>) 
-				(<Div s.B s.GCD>) 
-				(<Div s.A s.GCD>) 
-				(s.GCD)
-			>
-			(AreEqual ((<Div s.B s.GCD> t.Y)(<Div s.A s.GCD> t.X)) (s.CG Const))
-		>;
-}
-
-/*получаем решение, наименьшее неотрицательное по первой компоненте.
-([Number])([Number])([Number])([Number])([NatNumber])([NatNumber])([NatNumber]) =>
-([NatNumber])([Number])([NatNumber])([NatNumber])
-*/
-GetNNegSolutionDE2Var {
-/*1. ???Случай, когда один коэффициент точно делится на другой.*/
-	(e.M) (0) (e.X0) (e.Y0) (e.A) (e.B) (s.GCD) = 
-		(0) (<Sub e.Y0 <Mul e.M e.A>>) (e.B) (e.A);
-/*2. Все прочие.*/
-	(e.M) (e.Rm) (e.X0) (e.Y0) (e.A) (e.B) (s.GCD) = 
-		(<Add e.X0 <Mul <Add e.M 1> e.B>>) (<Sub e.Y0 <Mul <Add e.M 1> e.A>>) (e.B) (e.A);
-}
-
-/*Перебор первого коэффициента, начиная от самого маленького положительного значения, до максимума.
-([NatNum])([NatNum])([NatNum])([NatNum])(AreEqual (([NatNum] (weval e t.name))([NatNum] (weval e t.name)))([NatNum] Const)) =>
-(Case (assign (weval e [Name])(([NatNum] Const))((weval t [FreshName])^*))^+)^*
-*/
-SolveDE2Var1 {
-/*1. Y стал отрицательным*/
-	(s.X) ('-'s.Y) (s.DX) (s.DY) (AreEqual ((s.B t.Y)(s.A t.X)) (s.C Const)) = ;
-/*2. Порождаем очередное решение, увеличиваем X и уменьшаем Y*/
-	(s.X) (s.Y) (s.DX) (s.DY) (AreEqual ((s.B t.Y)(s.A t.X)) (s.C Const)) =
-		(Case 
-			<GenerateLengthRestriction (<MyZero>)()t.X s.X>
-			<GenerateLengthRestriction (<MyZero>)()t.Y s.Y>
-		)
-		<SolveDE2Var1 (<Add s.X s.DX>) (<Sub s.Y s.DY>) (s.DX) (s.DY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))>;
-}
-
-
-/*Порождается сужение на e-переменную - набор вспомогательных t-переменных.
-Первая скобка выхода после (weval e [Name]) --- мультимножество переменных в значении этой weval.
-Поскольку все переменные в ее значении -- термовые, они считаются как константы (их длина всегда 1).
-([NatNum])((weval t [Name])^*)(weval e [Name])[NatNum] => (assign (weval e [Name])(([NatNum] Const))((weval t [Name])^*)))
-*/
-GenerateLengthRestriction {
-	(e.MSPars)(e.NewValue)(weval e e.Name)0 = (assign (weval e e.Name)((e.MSPars Const))(e.NewValue));
-	(e.MSPars)(e.NewValue)(weval e e.Name)s.Num = <GenerateLengthRestriction 
-							(<MyAdd e.MSPars <MyOne>>)
-							(e.NewValue (weval t <FreshIndex 'wevalt_ind'>))							
-							(weval e e.Name)<Sub s.Num 1>
-						>;
-}
-
-/*Обрабатывается диофантово уравнение, где в правой части стоит 0. Значит, все переменные имеют лишь нулевую длину.
-(t.Pow (weval e t.Name))^* => (assign (weval e t.Name)((0 Const))())^*
-*/
-DEAssignAllNil {
-	=;
-	(t.Pow (weval e t.Name)) e.Other = (assign (weval e t.Name)((<MyZero> Const))())<DEAssignAllNil e.Other>;
-}
-
-SolveDE1Var {
-	'F'(AreEqual ((s.X t.X)) (s.C Const)) = ;
-	s.Num (AreEqual ((s.X t.X)) (s.C Const)) = (Case <GenerateLengthRestriction (<MyZero>)()t.X s.Num>);
-}
-
-/*Главная функция решения линейного диофантова уравнения на длины слов.
-	(AreEqual (e.Vars) ([NatNum] Const)) => ((Case (assign t.x (([NatNum] Const))t.xv)^+)^*)(s.Log)
-	где t.xv ::= ((weval t [Name])^*)
-	t.x ::= (weval e [Name])
-	e.Vars ::= (([NatNum] (weval e [Name]))^+)
-*/
-$ENTRY SolveLinearDE {
-	('T')(AreEqual (e.Vars) ((s.C Const))) = <OutForm <SolveLinearDE1 (AreEqual (e.Vars) (s.C Const))>>;
-	('F')(AreEqual ((s.A t.X)(s.B t.Y) e.Vars)((s.C Const))) = <CheckGCD s.A((s.B t.Y) e.Vars)(s.C Const)>;
-	('F')(AreEqual ((s.A t.X))((s.C Const))) = <CheckGCD s.A ()(s.C Const)>;
-}
-
-CheckGCD {
-    s.A ()(s.C Const), <MyDiv s.C s.A>: 'F' = ()('F');
-    s.A((s.B t.X) e.Other)(s.C Const), <GCD s.A s.B> : s.GCD (e.BX)(e.BY) 
-        = <CheckGCD s.GCD(e.Other)(s.C Const)>;
-    s.A ()(s.C Const) = ()('N');
-}
-
-/*Три возможных случая: нет решений (ложь), ровно одно решение (истина), много решений (здесь - 'N')*/
-OutForm {
-	 = ()('F');
-	 (Case e.Z)=((Case e.Z))('T'); 
-	 e.Z = (e.Z)('N');
-}
-
-/*Определение количества переменных в уравнении и в зависимости от него передача управления другим функциям.
-(AreEqual (([NatNum] (weval e [Name]))^*)([NatNum] Const)) => 
-(Case (assign (weval e [Name]) (([NatNum] Const))((weval t [Name]))^*)^*
-*/
-SolveLinearDE1 {
-/*1. В правой части уравнения --- пустая строка.*/
-	(AreEqual (e.Vars) (0 Const)) = (Case <DEAssignAllNil e.Vars>);
-/*2. В левой части уравнения --- пустая строка, в правой непустая. Противоречие.*/
-	(AreEqual () (t.X Const)) = ;
-/*3. В левой части уравнения --- одна переменная.*/
-	(AreEqual ((s.X t.X)) (s.C Const)) = <SolveDE1Var <MyDiv s.C s.X>(AreEqual ((s.X t.X)) (s.C Const))>;
-/*4. В левой части уравнения --- две переменные.*/
-	(AreEqual ((s.X t.X)(s.Y t.Y)) (s.C Const)) = <SolveDE2Var (AreEqual ((s.X t.X)(s.Y t.Y)) (s.C Const))>;
-/*5. В левой части уравнения больше двух переменных. Перебираем все возможные варианты на ту из них, у которой самый большой коэффициент.*/
-	(AreEqual (e.Vars) (s.C Const)) = <DEDecreaseDim (AreEqual <SortVars (e.Vars)> (s.C Const))>;
-}
-
-/*Переход к разрешению уравнений меньшей размерности.
-(AreEqual (([NatNum] (weval e [Name]))^+)([NatNum] Const)) ->
-(Case (assign (weval e [Name]) (([NatNum] Const))((weval t [Name]))^*)^*
-Выделяем случай, когда последняя переменная = 0 и обрабатываем все остальные, переставив последнюю переменную в самое начало.
-*/
-DEDecreaseDim {
-	(AreEqual (e.Vars (s.X t.X)) (s.C Const)) = 
-		<Zip 
-			(assign t.X ((<MyZero> Const))()) 
-			<SolveLinearDE1 (AreEqual (e.Vars) (s.C Const))>
-		>
-		<DEDecreaseDim1 <MyOne> (AreEqual ((s.X t.X) e.Vars) (s.C Const))>;
-}
-
-/*Переход к разрешению уравнений меньшей размерности с помощью последовательного перебора натуральных значений одной
-из переменных.
-[NatNum](AreEqual (([NatNum] (weval e [Name]))^+)([NatNum] Const)) ->
-(Case (assign (weval e [Name]) (([NatNum] Const))((weval t [Name]))^*)^*
-*/
-DEDecreaseDim1 {
-	s.XVal (AreEqual ((s.X t.X) e.Vars) (s.C Const)), <MyIfNotLess s.C s.X>:'T' = 
-		<Zip <GenerateLengthRestriction (<MyZero>)()t.X s.XVal> 
-			<SolveLinearDE1 (AreEqual (e.Vars) (<Sub s.C s.X> Const))>
-		>
-		<DEDecreaseDim1 
-			<MyIfNotLess 
-				<Sub s.C s.X> 
-				s.X
-			> 
-			<Add s.XVal 1>
-			(AreEqual ((s.X t.X) e.Vars) (<Sub s.C s.X> Const))
-		>;
-	s.XVal (AreEqual ((s.X t.X) e.Vars) (s.C Const)) = ;
+	s.x s.y (e.p) (e.q) (e.r) (e.s), 
+        <MyIfNotLess s.x s.y>: 'T'
+            = 
+            <GCDAux <Sub s.x s.y> s.y (<Sub e.p e.r>) (<Sub e.q e.s>) (e.r) (e.s)>;
+	s.x s.y (e.p) (e.q) (e.r) (e.s)
+            = 
+            <GCDAux s.x <Sub s.y s.x> (e.p) (e.q) (<Sub e.r e.p>) (<Sub e.s e.q>)>;
 }
 
 /*
-(assign t.x t.xv)(Case (assign t.x t.xv)^+)^* => (Case (assign t.x t.xv)^+)^*
-Совмещение сужения переменной с группой сужений*/
+    Сортировка переменных так, чтобы последней стала с самой большой кратностью.
+   ([MS]) => ([MS]), где
+   [MS] ::= ([NonNegNumber] t.Name)^*
+*/
+SortVars {
+    () = ();
+    ((s.Num t.Name)) = ((s.Num t.Name)); 
+    ((s.Num1 t.Name1)(s.Num2 t.Name2) e.Other)
+        = 
+        (<SortVars1  (s.Num1 t.Name1)(s.Num2 t.Name2) e.Other>);
+}
+
+/*
+    Вспомогательная для предыдущей, с дополнительным первым аргументом --- текущим максимумом.
+   ([NonNegNumber] t.Name)[MS] => [MS]
+*/
+SortVars1 {
+	(s.NumMax t.NameMax) = (s.NumMax t.NameMax); 
+	(s.NumMax t.NameMax) (s.NewMax t.NameNewMax) e.Other, 
+        <MyIfNotLess s.NumMax s.NewMax> : 'F'
+            = 
+            (s.NumMax t.NameMax) 
+            <SortVars1 (s.NewMax t.NameNewMax) e.Other>;
+	(s.NumMax t.NameMax) (s.NotMax t.NameNotMax) e.Other 
+            = 
+            (s.NotMax t.NameNotMax) 
+            <SortVars1 (s.NumMax t.NameMax) e.Other>;
+}
+
+/*
+    Функция решения линейного диофантова уравнения от 2 переменных.
+   Уравнение имеет вид
+   s.A*X + s.B*Y = C;
+   (AreEqual (s.A (weval e [Name]))(s.B (weval e [Name]))(s.C Const)) => 
+   (Case (assign (weval e [Name])(([NatNum] Const))((weval t [FreshName])^*))^+)^*
+*/
+SolveDE2Var {
+    (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)), 
+    <GCD s.A s.B> : s.GCD (e.BCX)(e.BCY), 
+    <MyIfNotLess e.BCX 0> : s.Log
+        =
+        <DecisionDE2Var2 s.Log
+            <MyDiv s.C s.GCD> s.GCD (e.BCX) (e.BCY)
+            (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))
+        >;
+}
+
+/*
+    По текущим значениям переменных -- коэффициентов Безу принимаем решение, что делаем дальше, и передаем управление
+   генератору решений.
+   s.Log ['F'|[NonNegNumber]] s.GCD (e.XBezu)(e.YBezu)(AreEqual (s.A (weval e [Name]))(s.B (weval e [Name]))(s.C Const)) => 
+   (Case (assign (weval e [Name])(([NatNum] Const))((weval t [FreshName])^*))^+)^*
+*/
+DecisionDE2Var2 {
+/* 1. с не делится на нод(а,b)=> решений нет. */
+	s.Log 'F' e.Bezu (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const)) = ;
+
+/* 2. Первый к-т Безу равен 0. Решение вида B*Y=C и его вариации. */
+	s.Log s.CG s.GCD (0) (s.BCY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))
+            = 
+            <SolveDE2Var1 
+                (0) 
+                (<Mul s.BCY s.CG>) 
+                (<Div s.B s.GCD>) 
+                (<Div s.A s.GCD>)
+                (AreEqual ((<Div s.A s.GCD> t.X)(<Div s.B s.GCD> t.Y)) (s.CG Const))
+            >;
+
+/* 3. Второй к-т Безу равен 0.  Решение вида A*X=C и его вариации. */
+	s.Log s.CG s.GCD (s.BCX) (0) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))
+            = 
+            <SolveDE2Var1 
+                (0) 
+                (<Mul s.BCX s.CG>) 
+                (<Div s.A s.GCD>) 
+                (<Div s.B s.GCD>)
+                (AreEqual ((<Div s.B s.GCD> t.Y)(<Div s.A s.GCD> t.X)) (s.CG Const))
+            >;
+/* 4. Первый к-т Безу отрицателен => дополняем до неотрицательного за счет добавления элементов s.B/s.GCD. */
+	'F' s.CG s.GCD ('-'s.BCX) (e.BCY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))
+            = 
+            <SolveDE2Var1 
+                <GetNNegSolutionDE2Var 
+                    (<Div <Mul <Mul s.CG s.BCX> s.GCD> s.B>)
+                    (<Mod <Mul <Mul s.CG s.BCX> s.GCD> s.B>)
+                    (<Mul '-'s.BCX s.CG>)
+                    (<Mul e.BCY s.CG>) 
+                    (<Div s.A s.GCD>) 
+                    (<Div s.B s.GCD>) 
+                    (s.GCD)
+                >
+                (AreEqual ((<Div s.A s.GCD> t.X)(<Div s.B s.GCD> t.Y)) (s.CG Const))
+            >;
+/* 5. Второй к-т Безу отрицателен => меняем местами и дополняем до неотрицательных. */
+	'T' s.CG s.GCD (e.BCX) ('-'s.BCY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))
+            = 
+            <SolveDE2Var1 
+                <GetNNegSolutionDE2Var 
+                    (<Div <Mul <Mul s.CG s.BCY> s.GCD> s.A>)
+                    (<Mod <Mul <Mul s.CG s.BCY> s.GCD> s.A>)
+                    (<Mul '-'s.BCY s.CG>)
+                    (<Mul e.BCX s.CG>) 
+                    (<Div s.B s.GCD>) 
+                    (<Div s.A s.GCD>) 
+                    (s.GCD)
+                >
+                (AreEqual ((<Div s.B s.GCD> t.Y)(<Div s.A s.GCD> t.X)) (s.CG Const))
+            >;
+}
+
+/*
+    Получаем решение, наименьшее неотрицательное по первой компоненте.
+   ([Number])([Number])([Number])([Number])([NatNumber])([NatNumber])([NatNumber]) =>
+   ([NatNumber])([Number])([NatNumber])([NatNumber]) 
+*/
+GetNNegSolutionDE2Var {
+/* 1. ???Случай, когда один коэффициент точно делится на другой. */
+	(e.M) (0) (e.X0) (e.Y0) (e.A) (e.B) (s.GCD)
+            = 
+            (0) (<Sub e.Y0 <Mul e.M e.A>>) (e.B) (e.A);
+/* 2. Все прочие. */
+	(e.M) (e.Rm) (e.X0) (e.Y0) (e.A) (e.B) (s.GCD)
+            = 
+            (<Add e.X0 <Mul <Add e.M 1> e.B>>) (<Sub e.Y0 <Mul <Add e.M 1> e.A>>) (e.B) (e.A);
+}
+
+/*
+    Перебор первого коэффициента, начиная от самого маленького положительного значения, до максимума.
+   ([NatNum])([NatNum])([NatNum])([NatNum])(AreEqual (([NatNum] (weval e t.name))([NatNum] (weval e t.name)))([NatNum] Const)) =>
+   (Case (assign (weval e [Name])(([NatNum] Const))((weval t [FreshName])^*))^+)^*
+*/
+SolveDE2Var1 {
+/* 1. Y стал отрицательным. */
+    (s.X) ('-'s.Y) (s.DX) (s.DY) (AreEqual ((s.B t.Y)(s.A t.X)) (s.C Const)) = ;
+/* 2. Порождаем очередное решение, увеличиваем X и уменьшаем Y */
+    (s.X) (s.Y) (s.DX) (s.DY) (AreEqual ((s.B t.Y)(s.A t.X)) (s.C Const))
+        =
+        (Case 
+            <GenerateLengthRestriction (<MyZero>)()t.X s.X>
+            <GenerateLengthRestriction (<MyZero>)()t.Y s.Y>
+        )
+        <SolveDE2Var1 (<Add s.X s.DX>) (<Sub s.Y s.DY>) (s.DX) (s.DY) (AreEqual ((s.A t.X)(s.B t.Y)) (s.C Const))>;
+}
+
+
+/*
+    Порождается сужение на e-переменную - набор вспомогательных t-переменных.
+   Первая скобка выхода после (weval e [Name]) --- мультимножество переменных в значении этой weval.
+   Поскольку все переменные в ее значении -- термовые, они считаются как константы (их длина всегда 1).
+   ([NatNum])((weval t [Name])^*)(weval e [Name])[NatNum] => (assign (weval e [Name])(([NatNum] Const))((weval t [Name])^*)))
+*/
+$ENTRY GenerateLengthRestriction {
+    (e.MSPars)(e.NewValue)(weval e e.Name)0
+        = (assign (weval e e.Name)((e.MSPars Const))(e.NewValue));
+    (e.MSPars)(e.NewValue)(weval e e.Name)s.Num
+        = <GenerateLengthRestriction 
+            (<MyAdd e.MSPars <MyOne>>)
+            (e.NewValue (weval t <FreshIndex 'wevalt_ind'>))							
+            (weval e e.Name)<Sub s.Num 1>
+        >;
+}
+
+/*
+    Обрабатывается диофантово уравнение, где в правой части стоит 0. Значит, все переменные имеют лишь нулевую длину.
+   (t.Pow (weval e t.Name))^* => (assign (weval e t.Name)((0 Const))())^*
+*/
+DEAssignAllNil {
+    = ;
+    (t.Pow (weval e t.Name)) e.Other = (assign (weval e t.Name)((<MyZero> Const))())<DEAssignAllNil e.Other>;
+}
+
+SolveDE1Var {
+    'F' (AreEqual ((s.X t.X)) (s.C Const)) = ;
+    s.Num (AreEqual ((s.X t.X)) (s.C Const)) = (Case <GenerateLengthRestriction (<MyZero>)()t.X s.Num>);
+}
+
+/*
+    Главная функция решения линейного диофантова уравнения на длины слов.
+	(s.InputLog)(AreEqual (e.Vars) ([NatNum] Const)) => ((Case (assign t.x (([NatNum] Const))t.xv)^+)^*)(s.Log)
+	где t.xv ::= ((weval t [Name])^*)
+	t.x ::= (weval e [Name])
+	e.Vars ::= (([NatNum] (weval e [Name]))^+)
+   При s.InputLog = 'T' мы пытаемся решить уравнение, при s.InputLog = 'F' - только отвечаем на вопрос,
+   есть ли у него корни.
+*/
+$ENTRY SolveLinearDE {
+    ('T')(AreEqual (e.Vars) ((s.C Const))) = <OutForm <SolveLinearDE1 (AreEqual (e.Vars) (s.C Const))>>;
+    ('F')(AreEqual (e.Vars)()) = ()('N');
+    ('F')(AreEqual ((s.A t.X)(s.B t.Y) e.Vars)((s.C t.Res))) = <CheckGCD s.A((s.B t.Y) e.Vars)(s.C t.Res)>;
+    ('F')(AreEqual ((s.A t.X))((s.C t.Res))) = <CheckGCD s.A ()(s.C t.Res)>;
+}
+
+/*
+    Пытаемся строить новое уравнение на длины переменных.
+   Нас интересуют лишь уравнения вида |x| = [Expr], т.е. слева стоит переменная строго в степени 1.
+   Такие уравнения получаются лишь если мощности всех элементов [Expr] (равносильно: их общий делитель)
+   делятся на изначальную мощность x. 
+*/
+
+$ENTRY NormalizeNumericEquation {
+    (AreEqual (e.Set)((t.Power t.Name))),
+    <SolveLinearDE ('F')(AreEqual (e.Set)((t.Power t.Name)))> : 
+        { ('F')(s.Log) = ;
+          (s.Div)(s.Log) = (AreEqual ((<MyOne> t.Name))(<DivideAllEl t.Power e.Set>));
+        };
+}
+
+/*
+    Дано число K и мультимножество. Построить из него мультимножество, все элементы которого имеют мощность,
+   в K раз меньшую, чем исходная. 
+*/
+
+DivideAllEl {
+    t.Divisor = ;
+    t.Divisor (t.Power t.Name) e.Other = (<MyDiv t.Power t.Divisor> t.Name)<DivideAllEl t.Divisor e.Other>;
+}
+
+/* Проверка, делится ли константа, стоящая справа в диофантовом уравнении, на общий делитель коэффициентов слева. */
+CheckGCD {
+    s.A ()(s.C t.Res), <MyDiv s.C s.A>: 'F' = (<MyDiv s.A s.C>)('F');
+    s.A((s.B t.X) e.Other)(s.C t.Res), <GCD s.A s.B> : s.GCD (e.BX)(e.BY) 
+        = <CheckGCD s.GCD(e.Other)(s.C t.Res)>;
+    s.A ()(s.C t.Res) = (<MyDiv s.A s.C>)('N');
+}
+
+/* Три возможных случая: нет решений (ложь), ровно одно решение (истина), много решений (здесь - 'N'). */
+OutForm {
+    = ()('F');
+    (Case e.Z) = ((Case e.Z))('T'); 
+    e.Z = (e.Z)('N');
+}
+
+/*
+    Определение количества переменных в уравнении и в зависимости от него передача управления другим функциям.
+   (AreEqual (([NatNum] (weval e [Name]))^*)([NatNum] Const)) => 
+   (Case (assign (weval e [Name]) (([NatNum] Const))((weval t [Name]))^*)^*
+*/
+SolveLinearDE1 {
+/* 1. В правой части уравнения --- пустая строка. */
+	(AreEqual (e.Vars) (0 Const)) = (Case <DEAssignAllNil e.Vars>);
+/* 2. В левой части уравнения --- пустая строка, в правой непустая. Противоречие. */
+	(AreEqual () (t.X Const)) = ;
+/* 3. В левой части уравнения --- одна переменная. */
+	(AreEqual ((s.X t.X)) (s.C Const)),
+            <MyDiv s.C s.X> :
+                { 'F'  = ;
+                  s.Num = (Case <GenerateLengthRestriction (<MyZero>)()t.X s.Num>);
+                };
+/* 4. В левой части уравнения --- две переменные. */
+	(AreEqual ((s.X t.X)(s.Y t.Y)) (s.C Const))
+            = <SolveDE2Var (AreEqual ((s.X t.X)(s.Y t.Y)) (s.C Const))>;
+/* 5. В левой части уравнения больше двух переменных. Перебираем все возможные варианты на ту из них, у которой самый большой коэффициент. */
+	(AreEqual (e.Vars) (s.C Const)) 
+            = <DEDecreaseDim (AreEqual <SortVars (e.Vars)> (s.C Const))>;
+}
+
+/*
+    Переход к разрешению уравнений меньшей размерности.
+   (AreEqual (([NatNum] (weval e [Name]))^+)([NatNum] Const)) ->
+   (Case (assign (weval e [Name]) (([NatNum] Const))((weval t [Name]))^*)^*
+   Выделяем случай, когда последняя переменная = 0 и обрабатываем все остальные, переставив последнюю переменную в самое начало.
+*/
+DEDecreaseDim {
+    (AreEqual (e.Vars (s.X t.X)) (s.C Const))
+        = 
+        <Zip 
+            (assign t.X ((<MyZero> Const))()) 
+            <SolveLinearDE1 (AreEqual (e.Vars) (s.C Const))>
+        >
+        <DEDecreaseDim1 <MyOne> (AreEqual ((s.X t.X) e.Vars) (s.C Const))>;
+}
+
+/*
+    Переход к разрешению уравнений меньшей размерности с помощью последовательного перебора натуральных значений одной
+   из переменных.
+   [NatNum](AreEqual (([NatNum] (weval e [Name]))^+)([NatNum] Const)) ->
+   (Case (assign (weval e [Name]) (([NatNum] Const))((weval t [Name]))^*)^*
+*/
+DEDecreaseDim1 {
+    s.XVal (AreEqual ((s.X t.X) e.Vars) (s.C Const)), 
+    <MyIfNotLess s.C s.X> : 'T' 
+        = 
+        <Zip <GenerateLengthRestriction (<MyZero>)()t.X s.XVal> 
+            <SolveLinearDE1 (AreEqual (e.Vars) (<Sub s.C s.X> Const))>
+        >
+        <DEDecreaseDim1 
+            <MyIfNotLess 
+                <Sub s.C s.X> 
+                s.X
+            > 
+            <Add s.XVal 1>
+            (AreEqual ((s.X t.X) e.Vars) (<Sub s.C s.X> Const))
+        >;
+    s.XVal (AreEqual ((s.X t.X) e.Vars) (s.C Const)) = ;
+}
+
+
+/*
+   (assign t.x t.xv)(Case (assign t.x t.xv)^+)^* => (Case (assign t.x t.xv)^+)^*
+   Совмещение сужения переменной с группой сужений. 
+*/
 Zip {
-	(assign t.x e.xval) = ;
-	(assign t.x e.xval)(Case (assign t.y e.yval) e.OtherVars)e.OtherCases = 
-			(Case (assign t.x e.xval)(assign t.y e.yval) e.OtherVars)
-			<Zip (assign t.x e.xval) e.OtherCases>;
+    (assign t.x e.xval) = ;
+    (assign t.x e.xval)(Case (assign t.y e.yval) e.OtherVars)e.OtherCases
+        = 
+        (Case (assign t.x e.xval)(assign t.y e.yval) e.OtherVars)
+        <Zip (assign t.x e.xval) e.OtherCases>;
+}
+
+/*
+********************************************************************************************************************************
+   БЛОК РАБОТЫ С МАТРИЦАМИ
+   Синтаксис:
+   [Matrix] ::= (([Row])^*)^*
+   [Row] ::= (s.Number)[Row] | ('-'s.Number)[Row] | (weval t [Name])[Row]|
+   Таким образом,
+   ((1 2 1)) суть матрица (1 2 1) (из одной строки);
+   ((1)(2)(1)) суть матрица (из одного столбца)
+   (1
+    2
+    1).
+*********************************************************************************************************************************
+*/
+
+
+/* [Matrix] -> [Matrix] */
+Transpone {
+    ((e.Row) e.Other) = <AddColumn (e.Row)<Transpone (e.Other)>>;
+    () = ();
+}
+
+/* [(([Number])^*)][Matrix] -> [Matrix] */
+AddColumn {
+    (t.1 e.1)((e.Row)e.Matrix) = (t.1 e.Row)<AddColumn (e.1)e.Matrix>;
+    (t.1 e.1)() = (<TransponeColumn t.1 e.1>);
+}
+
+/* ([Number]^*) -> (([Number]))^ */
+TransponeColumn {
+     = ;
+    (s.1) e.1 = ((s.1))<TransponeColumn e.1>;
+    ('-'s.1) e.1 = (('-'s.1))<TransponeColumn e.1>;
+}
+
+/* [Matrix] -> [Number] */
+NumOfRows {
+    ((e.Row) e.Other),
+    <NumOfRows (e.Other)> : s.Num
+        = <Add s.Num 1>;
+    () = 0;
+}
+
+/* [Matrix] -> [Number] */
+NumOfCols {
+    ((t.El e.Row) e.Other),
+    <NumOfCols ((e.Row))> : s.Num
+        = <Add s.Num 1>;
+    (() e.Other) = 0; 
+}
+
+/* [Number][Matrix] -> (( ([Number])^* )) */
+GetRow {
+    1 ((e.Row) e.Other) = ((e.Row));
+    s.1 ((e.Row) e.Other) = <GetRow <Sub s.1 1>(e.Other)>;
+}
+
+GetColumn {
+    s.Num ((e.Row) e.Other) = (<GetElement (1 s.Num) (e.Row)>)<GetColumn s.Num (e.Other)>;
+    s.Num () = ;
+}
+
+/* Init: ([Number][Number])[Matrix] -> ([Number]) */
+GetElement {
+    (s.Row s.Col) t.Matrix,
+    <GetRow s.Row t.Matrix> : ((e.Row)) 
+        = <GetElement Started s.Col e.Row>;
+    Started 1 t.Element e.Other = t.Element;
+    Started s.Num t.Element e.Other = <GetElement Started s.Num e.Other>;
+}
+
+MultiplyMatrix {
+	(e.Number) (e.Other) = (<MultiplyMatrix 
+						Started 
+						(e.Number)
+						e.Other>);
+	Started (e.Number) = ;
+	Started (e.Number) (e.Row) e.Other = (<MultiplyRow (e.Number)e.Row>)
+					<MultiplyMatrix 
+						Started 
+						(e.Number)
+						e.Other>;
+}
+
+MultiplyRow {
+	(e.1) = ;
+	(e.1)(0)e.Other = (0)<MultiplyRow (e.1) e.Other>;
+	(0)(e.1)e.Other = (0)<MultiplyRow (0) e.Other>;
+	('-'s.1)('-'s.2)e.Other = (<Mul s.1 s.2>)<MultiplyRow ('-'s.1) e.Other>;
+	('-'s.1)(0)e.Other = (0)<MultiplyRow ('-'s.1) e.Other>;
+	('-'s.1)(s.2)e.Other = ('-'<Mul s.1 s.2>)<MultiplyRow ('-'s.1) e.Other>;
+	(s.1)('-'s.2)e.Other = ('-'<Mul s.1 s.2>)<MultiplyRow (s.1) e.Other>;
+	(s.1)(s.2)e.Other = (<Mul s.1 s.2>)<MultiplyRow (s.1) e.Other>;
+}
+
+AddRow2Matrix {
+	(e.Row) s.Num t.Matrix,
+            <GetRow s.Num t.Matrix> : ((e.CurrRow)),
+            <AddRows (e.Row)(e.CurrRow)> : e.NewRow
+                = <ChangeRow (e.NewRow) s.Num t.Matrix>;
+}
+
+ChangeRow {
+	(e.NewRow) s.Num (e.Other) = (<ChangeRow Started (e.NewRow) s.Num (e.Other)>);
+	Started (e.NewRow) 1 (e.Row) e.Other = (e.NewRow) e.Other;
+	Started (e.NewRow) s.Num (e.Row) e.Other = (e.Row)<ChangeRow Started (e.NewRow) <Sub s.Num 1> e.Other>;
+}
+
+AddRows {
+	((e.1)e.Other1)((e.2)e.Other2) = (<Add e.1 e.2>)<AddRows (e.Other1)(e.Other2)>;
+	()() = ;
+}
+
+ExchangeRows {
+        s.Num1 s.Num2 t.Matrix,
+        <GetRow s.Num1 t.Matrix> : ((e.Row1)),
+        <GetRow s.Num2 t.Matrix> : ((e.Row2))
+            = <ChangeRow (e.Row2) s.Num1 <ChangeRow (e.Row1) s.Num2 t.Matrix>>;
+}
+
+FindMinRow {
+        s.ColNum ((e.Row)e.Matrix) =
+            <FindMinRow Started s.ColNum (1 <GetElement Started s.ColNum e.Row>) 2 (e.Matrix)>;
+        Started s.ColNum (s.OldRow (e.OldElement)) s.CurrRow ((e.Row) e.Matrix),
+            <GetElement Started s.ColNum e.Row> : (0)
+                =
+                (s.OldRow (e.OldElement));
+        Started s.ColNum (s.OldRow (e.OldElement)) s.CurrRow ((e.Row) e.Matrix),
+            <GetElement Started s.ColNum e.Row> : (e.CurrElement),
+            <MyIfNotLess <AbsVal (e.OldElement)><AbsVal (e.CurrElement)>> : 'F'
+                = <FindMinRow Started s.ColNum (s.CurrRow (e.CurrElement)) <Add s.CurrRow 1>(e.Matrix)>;
+        Started s.ColNum (e.Pair) s.CurrRow ((e.Row) e.Matrix)
+                = <FindMinRow Started s.ColNum (e.Pair)<Add s.CurrRow 1>(e.Matrix)>;
+        Started s.ColNum (s.MinRow (e.MinEl)) s.CurrRow () = (s.MinRow (e.MinEl));
+}
+
+
+AbsVal {
+    (s.1) = s.1;
+    ('-'s.1) = s.1; 
+}
+
+Signum {
+    (s.1) = ;
+    ('-'s.1) = '-'; 
+}
+
+FindEuclideanDivisor {
+    ('-'s.Num1)('-'s.Num2),
+        <Mod s.Num1 s.Num2> : 0
+            = '-'<Div s.Num1 s.Num2>;
+    (e.Num1)(e.Num2),
+        <Mod <AbsVal (e.Num1)><AbsVal (e.Num2)>> : 0
+            = <Div <AbsVal (e.Num1)><AbsVal (e.Num2)>>;
+    (s.Num1)(s.Num2) = '-'<Div s.Num1 s.Num2>;
+    ('-'s.Num1)(s.Num2) = <Add <Div s.Num1 s.Num2> 1>;
+    ('-'s.Num1)('-'s.Num2)= '-'<Add <Div s.Num1 s.Num2> 1>;
+    (s.Num1)('-'s.Num2) = <Div s.Num1 s.Num2>;
+}
+
+LowerNullRows {
+    s.ColNum (e.Matrix) = (<LowerNullRows Started s.ColNum 0 e.Matrix>);
+    Started s.ColNum s.Lowered  = ;
+    Started s.ColNum s.Lowered e.Matrix,
+        <MyIfNotLess s.Lowered <Add 1 <NumOfRows e.Matrix>>> : 'T' = e.Matrix;
+    Started s.ColNum s.Lowered (e.Row) e.Other,
+        <GetElement (1 s.ColNum) ((e.Row))> : 0,
+        <ExchangeRows 1 <Sub <NumOfRows ((e.Row) e.Other)> s.Lowered> 
+            ((e.Row) e.Other)> : (e.NewMatrix) 
+            =
+            <LowerNullRows 
+                s.ColNum 
+                <Add s.Lowered 1>
+                e.NewMatrix
+            >;
+    Started s.ColNum s.Lowered (e.Row) e.Other 
+        =
+        <LowerNullRows s.ColNum s.Lowered e.Other>;
+}
+
+ArrangeRows {
+    s.MaxCol s.MaxCol (e.FinishedMatrix) = e.FinishedMatrix;
+    s.ColNum s.MaxCol t.InitMatrix, <LowerNullRows t.InitMatrix> : t.ArrMatrix,
+    t.ArrMatrix : ((e.Row1)(e.Row2)e.OtherArrMatrix),
+    <FindMinRow s.ColNum t.ArrMatrix> : (s.MinRow (e.MinEl)),
+    <MyIfNotLess <AbsVal <GetElement (1 s.ColNum) ((e.Row2))>> 1> : 'T', 
+    <ExchangeRows s.MinRow 1 t.ArrMatrix> : t.CurrMatrix,
+    t.CurrMatrix : ((e.InitRow)e.OtherCurrMatrix)
+        =
+        <ArrangeRows s.ColNum s.MaxCol ((e.InitRow)<EuclideanDecrease s.ColNum (e.MinEl)(e.InitRow) e.OtherCurrMatrix>)>;
+    s.ColNum s.MaxCol t.InitMatrix, 
+    <LowerNullRows t.InitMatrix> : ((e.ProcessedRow) e.FinishedMatrix)
+        = (e.ProcessedRow)<ArrangeRows <Add s.ColNum 1> s.MaxCol(e.FinishedMatrix)>;
+}
+
+EuclideanDecrease {
+    s.ColNum (e.MinEl)(e.InitRow) (e.CurrRow) e.Other,
+        <GetElement (1 s.ColNum) ((e.CurrRow))> : (0)
+            =
+            (e.CurrRow) e.Other;
+    s.ColNum (e.MinEl)(e.InitRow) = ;
+    s.ColNum (e.MinEl)(e.InitRow) (e.CurrRow) e.Other,
+        <GetElement (1 s.ColNum) ((e.CurrRow))> : (e.CurrEl),
+        <FindEuclideanDivisor (e.CurrEl)(e.MinEl)> : e.Div,
+        <MultiplyMatrix (e.Div)((e.InitRow))> : ((e.RowToAdd)),
+        <AddRows (e.RowToAdd)(e.CurrRow)> : e.NewRow
+            =
+            (e.NewRow) <EuclideanDecrease s.ColNum (e.MinEl)(e.InitRow) e.Other>;
+}
+
+VerticalConcatMatrices {
+    (e.Matrix1) (e.Matrix2) 
+        = 
+        (<VerticalConcatMatrices Started (e.Matrix1) e.Matrix2>);
+    Started ((e.Row1)e.Other1) (e.Row2) e.Other2 = (e.Row1 e.Row2) <VerticalConcatMatrices Started (e.Row1) e.Row2>;
+    Started () = ;
+}
+
+GenerateIdentityMatrix {
+    s.Dim = (<GenerateIdentityMatrix Started 1 <Add s.Dim 1>>);
+    Started s.Dim s.Dim = ;
+    Started s.CurrRow s.Dim = (<GenerateIdRow 1 s.CurrRow s.Dim>)<GenerateIdentityMatrix <Add s.CurrRow> s.Dim>;
+}
+
+SliceMatrixHorisontal {
+    s.Row t.Matrix
+        = 
+        <SliceMatrixHorisontal Started () 1 <Add s.Row 1> t.Matrix>;
+    Started t.First s.Row s.Row t.Second = t.First t.Second;
+    Started (e.First) s.CurrRow s.RowToReach ((e.Row) e.Matrix)
+        =
+        <SliceMatrixHorisontal Started (e.First (e.Row))<Add s.CurrRow 1> s.RowToReach (e.Matrix)>;
+}
+
+GenerateIdRow {
+    s.IdPos s.IdPos s.Dim = (1)<GenerateIdRow <Add s.IdPos 1> s.IdPos s.Dim>;
+    s.Dim s.IdPos s.Dim = ;
+    s.CurrPos s.IdPos s.Dim = (0)<GenerateIdRow <Add s.CurrPos 1> s.IdPos s.Dim>;
+    
 }
