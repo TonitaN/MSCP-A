@@ -5,7 +5,7 @@ $EXTERN FoldStackIntoConf;
 
 $EXTERN NumericEsteem,IntegrateEqSolResults;
 
-$EXTERN ParametrizeAllEq,SubstituteInClashes;
+$EXTERN ParametrizeAllEq,SubstituteInClashes,ScreenNegatives;
 /****************************************************************************************************
    
    Функции доступа к конфигурациям узлов дерева развертки программы
@@ -14,48 +14,68 @@ $EXTERN ParametrizeAllEq,SubstituteInClashes;
 
 
 $ENTRY GetNodeStatus {
-    (Node t.Status t.Name e.Other) = t.Status; 
+    (t.NodeType t.Status t.Name e.Other) = t.Status; 
 }
 
 $ENTRY PutNodeStatus {
-    (Node t.Status t.Name e.Other) t.NewStatus = (Node t.NewStatus t.Name e.Other); 
+    (t.NodeType t.Status t.Name e.Other) t.NewStatus = (t.NodeType t.NewStatus t.Name e.Other); 
+}
+
+$ENTRY GetNodeWithStatus {
+    t.Status /* No Node */ = /* EMPTY */;
+    t.Status t.Node e.Other 
+    , <GetNodeStatus t.Node> : 
+    {
+    t.Status = t.Node;
+    t.Other
+    , <GetNodeChildren t.Node> : 
+        {
+        t.Child e.Children
+        , <GetNodeWithStatus t.Status t.Child> : /*Здесь тоже задается порядок в глубину. */ 
+            {
+            t.StatusNode = t.StatusNode;
+            /* EMPTY */ = <GetNodeWithStatus t.Status e.Children e.Other >; /* Порядок поиска - в глубину. */
+            };
+        /* EMPTY */ = <GetNodeWithStatus t.Status e.Other>;
+        };
+    };
 }
 
 $ENTRY GetNodeName {
-    (Node t.Status t.Name e.Other) = t.Name; 
+    (t.NodeType t.Status t.Name e.Other) = t.Name; 
 }
 
 $ENTRY PutNodeName {
-    (Node t.Status t.Name e.Other) t.NewName = (Node t.Status t.NewName e.Other); 
+    (t.NodeType t.Status t.Name e.Other) t.NewName = (t.NodeType t.Status t.NewName e.Other); 
 }
 
 $ENTRY GetNodeChildren {
-    (Node e.Node (Children e.Children)) = e.Children; 
-    (Node e.Node) = ; 
+    (t.NodeType e.Node (Children e.Children)) = e.Children; 
+    (t.NodeType e.Node) = /* EMPTY */; 
 
 }
 
 $ENTRY PutNodeChildren {
-    (Node e.Node (Children e.Children))
-        = (Node e.Node);
-    (Node e.Node (Children e.Children)) e.NewChildren 
-        = (Node e.Node (Children e.NewChildren));
-    (Node e.Node) 
-        = (Node e.Node);
-    (Node e.Node) e.NewChildren 
-        = (Node e.Node (Children e.NewChildren));
+    (t.NodeType e.Node (Children e.Children))
+        = (t.NodeType e.Node);
+    (t.NodeType e.Node (Children e.Children)) e.NewChildren 
+        = (t.NodeType e.Node (Children e.NewChildren));
+    (t.NodeType e.Node) 
+        = (t.NodeType e.Node);
+    (t.NodeType e.Node) e.NewChildren 
+        = (t.NodeType e.Node (Children e.NewChildren));
 }
 
 $ENTRY PutNodeNewChild {
-    (Node e.Node (Children e.Children)) (Node e.NewChild)
-        = (Node e.Node (Children e.Children (Node e.NewChild)));
-    (Node e.Node ) (Node e.NewChild)
-        = (Node e.Node (Children (Node e.NewChild)));
+    (t.NodeType e.Node (Children e.Children)) (t.NodeType e.NewChild)
+        = (t.NodeType e.Node (Children e.Children (t.NodeType e.NewChild)));
+    (t.NodeType e.Node ) (t.NodeType e.NewChild)
+        = (t.NodeType e.Node (Children (t.NodeType e.NewChild)));
 }
 
 $ENTRY ReplaceNodeChild {
-    (Node e.Node (Children e.Ch1 (Node t.OldStatus t.Name e.Other) e.Ch2)) (Node t.NewStatus t.Name e.NewOther)
-        = (Node e.Node (Children e.Ch1 (Node t.NewStatus t.Name e.NewOther) e.Ch2));
+    (t.NodeType e.Node (Children e.Ch1 (t.NodeType t.OldStatus t.Name e.Other) e.Ch2)) (t.NodeType t.NewStatus t.Name e.NewOther)
+        = (t.NodeType e.Node (Children e.Ch1 (t.NodeType t.NewStatus t.Name e.NewOther) e.Ch2));
 }
 
 $ENTRY GetNodeStack {
@@ -65,7 +85,7 @@ $ENTRY GetNodeStack {
         ((e.Restrictions)(e.ConfigEquations)(e.LetExpressions)(e.FullConfig)(e.Stack))
         e.Children
     )
-        = e.Stack;
+    /* EMPTY */ = e.Stack;
 }
 
 $ENTRY PutNodeStack {
@@ -139,8 +159,10 @@ $ENTRY NullifyNodeEqs {
     (Node t.Status 
         t.Name 
         ((e.Restrictions)(e.ConfigEquations)(e.LetExpressions)(e.FullConfig)(e.Stack))
-        e.Children),
-    e.ConfigEquations : (New e.New)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq) =
+        e.Children
+    )
+    , e.ConfigEquations : (New e.New)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
+        =
         (Node t.Status t.Name ((e.Restrictions)((New)(Grammar)(Negative)(Numeric)(Generic))
         (e.LetExpressions)(e.FullConfig)(e.Stack))e.Children);
 }
@@ -168,14 +190,18 @@ $ENTRY GetNodeNegEqs {
 }
 
 $ENTRY PutNodeNegEqs {
-    t.Node (OR ) = t.Node;
+    t.Node (OR (s.Log)) = t.Node;
     t.Node e.EqsToPut
     , <GetNodeEqs t.Node> : (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
         = <PutNodeEqs t.Node 
-            (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq e.EqsToPut)(Numeric e.NumEq)(Generic e.GenEq)
+            (New e.NewEq)(Grammar e.RegEq)(Negative <ScreenNegatives Init e.NegEq e.EqsToPut>)(Numeric e.NumEq)(Generic e.GenEq)
         >;
 }
 
+DeleteMultipleEqs {
+    e.1 t.1 e.2 t.1 e.3 = <DeleteMultipleEqs e.1 t.1 e.2 e.3>;
+    e.Z = e.Z;
+}
 
 $ENTRY GetNodeGenericEqs {
     t.Node
@@ -188,6 +214,13 @@ $ENTRY ReplaceNodeGenEqs {
     , <GetNodeEqs t.Node> : (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
         = <PutNodeEqs t.Node 
             (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.EqsToPut)>;
+}
+
+$ENTRY ReplaceNodeNegEqs {
+    t.Node e.EqsToPut
+    , <GetNodeEqs t.Node> : (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
+        = <PutNodeEqs t.Node 
+            (New e.NewEq)(Grammar e.RegEq)(Negative <ScreenNegatives Init e.EqsToPut>)(Numeric e.NumEq)(Generic e.GenEq)>;
 }
 
 $ENTRY ReplaceNodeNewEqs {
@@ -260,7 +293,8 @@ $ENTRY GetNodeLets {
         t.Name 
         ((e.Restrictions)(e.ConfigEquations)(e.LetExpressions)(e.FullConfig)(e.Stack))
         e.Children
-    ) = e.LetExpressions;
+    )
+        = e.LetExpressions;
 }
 
 $ENTRY PutNodeLets {
@@ -290,11 +324,11 @@ $ENTRY DeleteNodeActiveData {
 }
 
 $ENTRY GetNodeFullConfig {
-    t.Node,
-    <GetNodeRestrictions t.Node> : e.Restrs,
-    <GetNodeEqs t.Node> : e.Eqs,
-    <GetNodeStack t.Node> : e.Stack,
-    <GetNodeConfig t.Node> : e.FullConf
+    t.Node
+    , <GetNodeRestrictions t.Node> : e.Restrs
+    , <GetNodeEqs t.Node> : e.Eqs
+    , <GetNodeStack t.Node> : e.Stack
+    , <GetNodeConfig t.Node> : e.FullConf
         = (e.Restrs) (e.Eqs) (e.FullConf) (e.Stack);
 }
 
@@ -303,7 +337,7 @@ $ENTRY GetStackTop {
 }
 
 $ENTRY FormatTreeToPrint {
-     = ;
+    /* EMPTY */ = /* EMPTY */;
     (Node
     t.Status 
         t.Name 
@@ -314,33 +348,44 @@ $ENTRY FormatTreeToPrint {
         {(Subtree e.1)
             = <Putout 1 'Node 't.Name' is a root of a subtree.'>;
         /* EMPTY */   
-            = <Putout 1 'Simple node 't.Name' with status: 't.Status>
-            <Putout 1 'Restrictions: 'e.Restrictions>
-            <Putout 1 'Equations: '<FormatEquationsForPrint e.ConfigEquations>>
-            <Putout 1 'Configuration: 'e.FullConfig>
-            <Putout 1 'Stack: '><PrintStack e.Stack>
+            = <Putout 1 '=================================================================================='>
+            <Putout 1 '         SIMPLE NODE 't.Name' with status: 't.Status>
+            <Putout 1 '  Restrictions: 'e.Restrictions>
+            <Putout 1 <FormatEquationsForPrint e.ConfigEquations>>
+            <Putout 1 '  Configuration: 'e.FullConfig>
+            <Putout 1 '  Stack: '><PrintStack e.Stack>
             <Putout 1>
-            <FormatTreeToPrint e.Children><FormatTreeToPrint e.Rest>;
-        e.1 = <Putout 1 'Let node 't.Name>
-            <Putout 1 'Let information: 'e.LetExpressions>
-            <Putout 1 'Restrictions: 'e.Restrictions>
-            <Putout 1 'Equations: '<FormatEquationsForPrint e.ConfigEquations>>
-            <Putout 1 'Configuration: 'e.FullConfig>
-            <Putout 1 'Stack: '><PrintStack e.Stack>;    
+            <Putout 1 '  Children of 't.Name': '>
+            <FormatTreeToPrint e.Children>
+            <Putout 1 '======================== NODE 't.Name' INFO END===================================='>
+            <FormatTreeToPrint e.Rest>;
+        e.1 = <Putout 1 '=============================================================================='> 
+            <Putout 1 '           LET NODE 't.Name>
+            <Putout 1 '  Let information: 'e.LetExpressions>
+            <Putout 1 '  Restrictions: 'e.Restrictions>
+            <Putout 1 <FormatEquationsForPrint e.ConfigEquations>>
+            <Putout 1 '  Configuration: 'e.FullConfig>
+            <Putout 1 '  Stack: '><PrintStack e.Stack>
+            <Putout 1 '======================== NODE 't.Name' INFO END===================================='>;    
         };
     (Children e.Children) = <FormatTreeToPrint e.Children>;
 }
 
 FormatEquationsForPrint {
-     = ;
+    /* EMPTY */ = /* EMPTY */;
     (t.Bag (Desired)) e.Rest = <FormatEquationsForPrint e.Rest>;
     (t.Bag t.Equation e.Other) e.Rest 
-        = <Explode t.Bag>': 't.Equation e.Other '\n'<FormatEquationsForPrint e.Rest>;
+        = '  Equations '<Explode t.Bag>': 't.Equation <AddNewLines e.Other> '\n'<FormatEquationsForPrint e.Rest>;
     (t.Bag) e.Rest = <FormatEquationsForPrint e.Rest>;
 }
 
+$ENTRY AddNewLines {
+    /* EMPTY */ = /* EMPTY */;
+    t.Element e.Other = '\n    't.Element<AddNewLines e.Other>;
+}
+
 PrintStack {
-     = ;
+    /* EMPTY */ = /* EMPTY */;
     (e.StackLevel) e.Rest
          = <Putout 1 '      'e.StackLevel><PrintStack e.Rest>;
 }
@@ -382,7 +427,7 @@ $ENTRY GetEBProgramDataAsgs {
 
 $ENTRY GetEBAsgs {
     ((e.prasgm)(e.Variants)(e.assignments)(e.equations)(e.grammar)(e.negative)(e.numeric)(e.generic)(s.Log))
-     = e.assignments;
+         = e.assignments;
 }
 
 $ENTRY GetEBNewEqs {
@@ -429,7 +474,7 @@ $ENTRY ReplaceEBNumericEqs {
 }
 
 $ENTRY SubstituteEBAsgs {
-    t.EqBlock () = t.EqBlock;
+    t.EqBlock (/* EMPTY */) = t.EqBlock;
     ((e.prasgm)(e.Variants)(e.assignments)(e.equations)(e.grammar)(e.negative)(e.numeric)(e.generic)(s.Log))(e.SubstWithMS)
         = <Putout 1 'New assignments:'><Putout 1 e.SubstWithMS>
         <SubstituteInNumeric
@@ -458,29 +503,30 @@ $ENTRY SubstituteInNumeric {
    всех прежних числовых уравнений на этот элемент. 
 */
 
-    (e.Subst)t.EquationBlock,
-        <GetEBNumericEqs t.EquationBlock> : e.Numeric,
-        <FindLeftEquality (e.Subst)e.Numeric> : (t.NewEquality)e.OtherNumEqs,
-        <IntegrateEqSolResults (Grammar )
-                    <NumericEsteem t.NewEquality> 
-                    <ReplaceEBNumericEqs t.EquationBlock e.OtherNumEqs>
-        > : t.NewEquationBlock 
-            = <SubstituteInNumeric (e.Subst)t.NewEquationBlock>;
+    (e.Subst)t.EquationBlock
+    , <GetEBNumericEqs t.EquationBlock> : e.Numeric
+    , <FindLeftEquality (e.Subst)e.Numeric> : (t.NewEquality)e.OtherNumEqs
+    , <IntegrateEqSolResults 
+        (Grammar )
+        <NumericEsteem t.NewEquality> 
+        <ReplaceEBNumericEqs t.EquationBlock e.OtherNumEqs>
+    > : t.NewEquationBlock 
+        = <SubstituteInNumeric (e.Subst)t.NewEquationBlock>;
 /*
     2. Если подстановка является псевдоподстановкой (т.е. только передаёт информацию о длинах переменных),
    завершаем подстановку. 
 */
 
-    (e.Sub1 (assign t.name t.MS (Pseudo)) e.Sub2)t.EquationBlock,
-        <GetEBNumericEqs t.EquationBlock> :  
+    (e.Sub1 (assign t.name t.MS (Pseudo)) e.Sub2)t.EquationBlock
+    , <GetEBNumericEqs t.EquationBlock> :  
         {e.1 (AreEqual ((1 t.name))t.MS) e.2
             = t.EquationBlock;
         e.Z = <AddEBNumEqs t.EquationBlock (AreEqual ((1 t.name))t.MS)>;
        };
 /* 3. Если подстановка действительная, осуществляем её. */
-    (e.Subst)t.EquationBlock,
-        <GetEBNumericEqs t.EquationBlock> : e.Numeric
-            = <ReplaceEBNumericEqs t.EquationBlock <SubstituteInMS (e.Subst)e.Numeric>>;
+    (e.Subst)t.EquationBlock
+    , <GetEBNumericEqs t.EquationBlock> : e.Numeric
+        = <ReplaceEBNumericEqs t.EquationBlock <SubstituteInMS (e.Subst)e.Numeric>>;
 }
 
 SubstituteInMS {
@@ -496,7 +542,7 @@ SubstituteInMS {
 
 FindLeftEquality {
     (e.Subst1 (assign t.weval (e.MS) t.Expr) e.Subst2)
-        e.EqBlock1 (AreEqual ((1 t.weval))(e.OtherMS)) e.EqBlock2
+    e.EqBlock1 (AreEqual ((1 t.weval))(e.OtherMS)) e.EqBlock2
          = ((AreEqual (e.MS)(e.OtherMS))) e.EqBlock1 e.EqBlock2;
     (e.Subst)e.Eqs = ;
 }
@@ -512,22 +558,23 @@ $ENTRY MakeEBContr {
 */
 
 $ENTRY NormalizeEB {
-    t.EqBlock,
-    <GetEBNewEqs t.EqBlock> : e.Equations,
-    <GetEBAsgs t.EqBlock> : e.Asgs,
-    <RemoveEqualEqs e.Equations> : e.NewEqs,
-    <GetFirstVariants t.EqBlock> : t.1 (e.FirstCases) e.OtherCases,
-    <FormatRCV 
+    t.EqBlock
+    , <GetEBNewEqs t.EqBlock> : e.Equations
+    , <GetEBAsgs t.EqBlock> : e.Asgs
+    , <RemoveEqualEqs e.Equations> : e.NewEqs
+    , <GetFirstVariants t.EqBlock> : t.1 (e.FirstCases) e.OtherCases
+    , <FormatRCV 
         ()()(e.Asgs)(e.NewEqs)
         <RemoveCommonVariants (e.Asgs)(e.NewEqs)e.FirstCases>
         (Multiply e.OtherCases)
     > : (e.NormAsgs)(e.NormEqs)e.NormVars
         =
         <SubstituteEBAsgs
-        <ReplaceEBVariants 
-            <ReplaceEBNewEqs t.EqBlock e.NormEqs> 
-            <FormatVariants e.NormVars>
-        >(e.NormAsgs)>;
+            <ReplaceEBVariants 
+                <ReplaceEBNewEqs t.EqBlock e.NormEqs> 
+                <FormatVariants e.NormVars>
+            >
+        (e.NormAsgs)>;
 }
 
 FormatVariants {
@@ -546,31 +593,32 @@ RemoveEqualEqs {
 }
 
 RemoveCommonVariants {
-    (e.ComAsgs)(e.ComEqs)e.1 (Case ()()('T')) e.2 = 
-        <RemoveCommonVariants (e.ComAsgs)(e.ComEqs)e.1 e.2>;
-    (e.ComAsgs)(e.ComEqs)e.1 t.1 e.2 t.1 e.3 = 
-        <RemoveCommonVariants (e.ComAsgs)(e.ComEqs)e.1 t.1 e.2 e.3>;
+    (e.ComAsgs)(e.ComEqs)e.1 (Case ()()('T')) e.2 
+        = <RemoveCommonVariants (e.ComAsgs)(e.ComEqs)e.1 e.2>;
+    (e.ComAsgs)(e.ComEqs)e.1 t.1 e.2 t.1 e.3 
+        = <RemoveCommonVariants (e.ComAsgs)(e.ComEqs)e.1 t.1 e.2 e.3>;
     (e.ComAsgs)(e.CommonEqs1 (AreEqual t.Log e.Equality) e.CommonEqs2)
-        e.1(Case (e.Asgs)(e.CaseEqs1 (AreEqual t.Log2 e.Equality) e.CaseEqs2))e.2 =
-            <RemoveCommonVariants 
-                (e.ComAsgs)
-                (e.CommonEqs1 (AreEqual t.Log e.Equality) e.CommonEqs2)
-                e.1(Case (e.Asgs)(e.CaseEqs2 e.CaseEqs2))e.2
-            >;
+    e.1(Case (e.Asgs)(e.CaseEqs1 (AreEqual t.Log2 e.Equality) e.CaseEqs2))e.2
+        = <RemoveCommonVariants 
+            (e.ComAsgs)
+            (e.CommonEqs1 (AreEqual t.Log e.Equality) e.CommonEqs2)
+            e.1(Case (e.Asgs)(e.CaseEqs2 e.CaseEqs2))e.2
+        >;
     (e.ComAsg1 t.asg e.ComAsg2)(e.CommonEqs) 
-        e.1(Case (e.CaseAsgs1 t.asg e.CaseAsgs2)(e.CaseEqs))e.2 =
-            <RemoveCommonVariants 
-                (e.ComAsg1 t.asg e.ComAsg2)
-                (e.CommonEqs)
-                e.1(Case (e.CaseAsgs1 e.CaseAsgs2)(e.CaseEqs))e.2
-            >;
+    e.1(Case (e.CaseAsgs1 t.asg e.CaseAsgs2)(e.CaseEqs))e.2
+        = <RemoveCommonVariants 
+            (e.ComAsg1 t.asg e.ComAsg2)
+            (e.CommonEqs)
+            e.1(Case (e.CaseAsgs1 e.CaseAsgs2)(e.CaseEqs))e.2
+        >;
         
-    (e.ComAsgs)(e.ComEqs)e.Cases,
-        <CommonCasesData ()()e.Cases> : 
-            {()() = ()()(e.Cases);
-            (e.Asgs)(e.Eqs) = (e.Asgs)(e.Eqs)
-                                <RemoveCommonVariants (e.Asgs)(e.Eqs)e.Cases>;
-            };
+    (e.ComAsgs)(e.ComEqs)e.Cases
+    , <CommonCasesData ()()e.Cases> : 
+        {()() = ()()(e.Cases);
+        (e.Asgs)(e.Eqs)
+            = (e.Asgs)(e.Eqs)
+            <RemoveCommonVariants (e.Asgs)(e.Eqs)e.Cases>;
+        };
 }
 
 /*
@@ -584,8 +632,8 @@ CommonCasesData {
 
 FormatRCV {
     (e.ProcCases)(e.GenAsgs)(e.Asgs)(e.Eqs)(e.NewAsgs)(e.NewEqs)(e.CurrentCases)
-        (Multiply (e.NextCase)e.OtherCases) = 
-        <FormatRCV 
+    (Multiply (e.NextCase)e.OtherCases)
+        = <FormatRCV 
             (e.ProcCases (e.CurrentCases))
             (e.GenAsgs e.NewAsgs)
             (e.Asgs e.NewAsgs)(e.Eqs e.NewEqs)
@@ -593,8 +641,8 @@ FormatRCV {
             (Multiply e.OtherCases)
         >;
     (e.ProcCases)(e.GenAsgs)(e.Asgs)(e.Eqs)(e.NewAsgs)(e.NewEqs)((Case (e.CaseAsgs)(e.CaseEqs)))
-        (Multiply (e.NextCase)e.OtherCases) = 
-        <FormatRCV 
+    (Multiply (e.NextCase)e.OtherCases)
+        = <FormatRCV 
             (e.ProcCases)
             (e.GenAsgs e.NewAsgs e.CaseAsgs)
             (e.Asgs e.NewAsgs e.CaseAsgs)(e.Eqs e.NewEqs e.CaseEqs)
@@ -602,13 +650,13 @@ FormatRCV {
             (Multiply e.OtherCases)
         >;
     ()(e.GenAsgs)(e.Asgs)(e.Eqs)(e.NewAsgs)(e.NewEqs)((Case (e.CaseAsgs)(e.CaseEqs)))
-        (Multiply ) = 
-            (e.GenAsgs e.NewAsgs e.CaseAsgs)(e.Eqs e.NewEqs e.CaseEqs);    
+    (Multiply )
+        = (e.GenAsgs e.NewAsgs e.CaseAsgs)(e.Eqs e.NewEqs e.CaseEqs);    
     (e.ProcCases)(e.GenAsgs)(e.Asgs)(e.Eqs)(e.NewAsgs)(e.NewEqs)((Case (e.CaseAsgs)(e.CaseEqs)))
-        (Multiply ) = 
-            (e.GenAsgs e.NewAsgs e.CaseAsgs)(e.Eqs e.NewEqs e.CaseEqs)(Multiply e.ProcCases);    
-    (e.ProcCases)(e.GenAsgs)(e.Asgs)(e.Eqs)(e.NewAsgs)(e.NewEqs)(e.NewCases)(Multiply ) = 
-            (e.GenAsgs e.NewAsgs)(e.Eqs e.NewEqs)(Multiply e.ProcCases);        
+    (Multiply )
+        = (e.GenAsgs e.NewAsgs e.CaseAsgs)(e.Eqs e.NewEqs e.CaseEqs)(Multiply e.ProcCases);    
+    (e.ProcCases)(e.GenAsgs)(e.Asgs)(e.Eqs)(e.NewAsgs)(e.NewEqs)(e.NewCases)(Multiply )
+        = (e.GenAsgs e.NewAsgs)(e.Eqs e.NewEqs)(Multiply e.ProcCases);        
 }
 
 $ENTRY DeleteEBEquation {
@@ -632,14 +680,14 @@ $ENTRY AddEBVariants {
 
 SubstituteInCases {
     (e.Subst) = ;
-    (e.Subst)(Multiply (e.Cases)e.OtherCases) =
-        (Multiply (<SubstituteInCases (e.Subst) e.Cases>)<SubstituteInCases (e.Subst)e.OtherCases>);
-    (e.Subst)(Case (e.Asgs)(e.Eqs)(s.Log))e.Cases,
-        <SubstituteWithEqGen ()(e.Subst) e.Asgs> : (e.NewAsgs)(e.NewEqs) = 
-        (Case (e.NewAsgs)(<Substitute (e.Subst)e.Eqs e.NewEqs>)(s.Log))
+    (e.Subst)(Multiply (e.Cases)e.OtherCases)
+        = (Multiply (<SubstituteInCases (e.Subst) e.Cases>)<SubstituteInCases (e.Subst)e.OtherCases>);
+    (e.Subst)(Case (e.Asgs)(e.Eqs)(s.Log))e.Cases
+    , <SubstituteWithEqGen ()(e.Subst) e.Asgs> : (e.NewAsgs)(e.NewEqs)
+        = (Case (e.NewAsgs)(<Substitute (e.Subst)e.Eqs e.NewEqs>)(s.Log))
         <SubstituteInCases (e.Subst)e.Cases>;
-    (e.Subst)(t.Case e.Cases)e.OtherCases = 
-        (<SubstituteInCases (e.Subst) t.Case e.Cases>)
+    (e.Subst)(t.Case e.Cases)e.OtherCases
+        = (<SubstituteInCases (e.Subst) t.Case e.Cases>)
         <SubstituteInCases (e.Subst)e.Cases>;
 }
 
@@ -654,10 +702,10 @@ SubstituteWithEqGen {
 }
 
 $ENTRY GetFirstVariants {
-        ((e.prasgm)((Multiply (e.FirstCases)e.Cases)) e.OtherData)
-            = ((e.prasgm)((Multiply e.Cases)) e.OtherData)(e.FirstCases) e.Cases;
-        ((e.prasgm)(e.Cases) e.OtherData) =
-            ((e.prasgm)() e.OtherData)(e.Cases);
+    ((e.prasgm)((Multiply (e.FirstCases)e.Cases)) e.OtherData)
+        = ((e.prasgm)((Multiply e.Cases)) e.OtherData)(e.FirstCases) e.Cases;
+    ((e.prasgm)(e.Cases) e.OtherData)
+        = ((e.prasgm)() e.OtherData)(e.Cases);
 }
 
 $ENTRY ReplaceEBVariants {
@@ -665,20 +713,20 @@ $ENTRY ReplaceEBVariants {
 }
 
 $ENTRY FormEquationBlock {
-    (e.ParameterList)(e.ParametrizedEqs) t.PRTC,
-    e.ParameterList : (e.ParAsgs)(e.VarAsgs)(e.CallAsgs),
-    <GetPRTCAllEqs t.PRTC> : t.NewEqs e.OtherEqs,
-    e.OtherEqs : (Grammar e.PRTCGram)(Negative e.PRTCNeg)(Numeric e.PRTCNum)(Generic e.PRTCGenEq),
-    <Substitute (e.ParAsgs)e.PRTCNeg> : e.EBNeg,
-    <Substitute (e.ParAsgs)e.PRTCNum> : e.EBNum,
-    <Substitute (e.ParAsgs)e.PRTCGenEq> : e.EBGen,
-    <ExtractActiveEquations e.EBGen> : (e.ActiveEqs)(e.InactiveEqs),
-    <ParametrizeAllEq Started (e.ParameterList)()e.ActiveEqs> : (e.NewParList)(e.EBNewGen)
+    (e.ParameterList)(e.ParametrizedEqs) t.PRTC
+    , e.ParameterList : (e.ParAsgs)(e.VarAsgs)(e.CallAsgs)
+    , <GetPRTCAllEqs t.PRTC> : t.NewEqs e.OtherEqs
+    , e.OtherEqs : (Grammar e.PRTCGram)(Negative e.PRTCNeg)(Numeric e.PRTCNum)(Generic e.PRTCGenEq)
+    , <Substitute (e.ParAsgs)e.PRTCNeg> : e.EBNeg
+    , <Substitute (e.ParAsgs)e.PRTCNum> : e.EBNum
+    , <Substitute (e.ParAsgs)e.PRTCGenEq> : e.EBGen
+    , <ExtractActiveEquations e.EBGen> : (e.ActiveEqs)(e.InactiveEqs)
+    , <ParametrizeAllEq Started (e.ParameterList)()e.ActiveEqs> : (e.NewParList)(e.EBNewGen)
         = (Inactive e.InactiveEqs)((e.NewParList)()()(e.ParametrizedEqs)()(e.EBNeg)(e.EBNum)(e.EBNewGen)('T'));
 }
 
 $ENTRY ExtractActiveEquations {
-     = ()();
+    /* EMPTY */ = ()();
     (AreEqual e.Z) e.Rest = <ExtractActiveEquations Started ()(AreEqual e.Z) e.Rest>; 
     Started (e.ActiveEqs) e.1 (AreEqual ('T')(e.LHS)(e.RHS)) e.2 
         = <ExtractActiveEquations Started (e.ActiveEqs (AreEqual ('T')(e.LHS)(e.RHS))) e.1 e.2>;
@@ -686,28 +734,30 @@ $ENTRY ExtractActiveEquations {
 }
 
 $ENTRY IntegrateEBEqsInPRTC {
-    (e.InactiveEqs) t.PRTC t.EB,
-    t.PRTC : (((New e.PRTCNewEqs (Desired e.Calls))(Grammar e.PRTCGram)(Negative e.PRTCNeg)(Numeric e.PRTCNum)(Generic e.PRTCGenEq))e.Other),
-    t.EB : ((e.prasgm)()(e.assignments)(e.EBNewEqs)(e.EBGram)(e.EBNeg)(e.EBNum)(e.EBGeneric)(s.Log))
-        = <AddPRTCGenericEqs <ReplacePRTCAllEqs t.PRTC
+    (e.InactiveEqs) t.PRTC t.EB
+    , t.PRTC : (((New e.PRTCNewEqs (Desired e.Calls))(Grammar e.PRTCGram)(Negative e.PRTCNeg)(Numeric e.PRTCNum)(Generic e.PRTCGenEq))e.Other)
+    , t.EB : ((e.prasgm)()(e.assignments)(e.EBNewEqs)(e.EBGram)(e.EBNeg)(e.EBNum)(e.EBGeneric)(s.Log))
+        = <AddPRTCGenericEqs 
+            <ReplacePRTCAllEqs t.PRTC
             (New <Transform2ClassicEqs e.EBNewEqs>)(Grammar e.EBGram)(Negative e.EBNeg)(Numeric e.EBNum)(Generic <Transform2ClassicEqs e.EBGeneric>)
-            > e.InactiveEqs>;
+            > 
+        e.InactiveEqs>;
 }
 
 $ENTRY CheckVarDependencies {
-    (t.var) t.EB,
-    <GetEBAsgs t.EB> : e.newasgs,
-    <GetEBNewEqs t.EB> : e.NewEq
-            = <LogOr <IfInAssignments t.var e.newasgs><IfInEquations t.var e.NewEq>>;
+    (t.var) t.EB
+    , <GetEBAsgs t.EB> : e.newasgs
+    , <GetEBNewEqs t.EB> : e.NewEq
+        = <LogOr <IfInAssignments t.var e.newasgs><IfInEquations t.var e.NewEq>>;
     (e.Val) t.EB = 'T';
 }
 
 
 /* удаление блоков сложности из уравнений */
 Transform2ClassicEqs {
-	= ;
-	(AreEqual (s.Log)(e.Comp1)(e.LHS)(e.Comp2)(e.RHS)) e.other =
-		(AreEqual (s.Log)(e.LHS)(e.RHS))<Transform2ClassicEqs e.other>;
+    /* EMPTY */ = /* EMPTY */;
+    (AreEqual (s.Log)(e.Comp1)(e.LHS)(e.Comp2)(e.RHS)) e.other
+        = (AreEqual (s.Log)(e.LHS)(e.RHS))<Transform2ClassicEqs e.other>;
 }
 
 IfInAssignments {
@@ -753,22 +803,28 @@ $ENTRY GetNewEqsFromEqs {
         = e.NewEq;
 }     
 
+$ENTRY GetPRTCGenEqs {
+    ((e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log))
+    , e.equations : (New e.NewEq (Desired e.Calls))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
+        = e.GenEq;
+}
+
 $ENTRY GetPRTCNewEqs {
-    ((e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log)),
-    e.equations : (New e.NewEq (Desired e.Calls))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
+    ((e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log))
+    , e.equations : (New e.NewEq (Desired e.Calls))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
         = e.NewEq;
 }
 
-GetPRTCAllEqs {
+$ENTRY GetPRTCAllEqs {
     ((e.equations)(e.restrictions)(e.assignments)(e.Clashes)(s.Log))
         = e.equations;
 }
 
 /* Заглушка! */
 $ENTRY SubstInNewEqs {
-    (e.Subst)t.PRTC,
-    t.PRTC : (((New e.NewEq (Desired e.Calls))e.OtherEqualities)e.AllOther(s.Log)),
-    e.Subst : 
+    (e.Subst)t.PRTC
+    , t.PRTC : (((New e.NewEq (Desired e.Calls))e.OtherEqualities)e.AllOther(s.Log))
+    , e.Subst : 
     { (assign (call e.call) e.tosub)
         = (((New <Substitute (e.Subst) e.NewEq>(Desired e.Calls))
             e.OtherEqualities)
@@ -783,17 +839,17 @@ $ENTRY SubstInNewEqs {
 }
 
 $ENTRY ReplacePRTCAllEqs {
-    ((e.PRTCEqs)e.OtherConfig) e.Equations,
-        e.Equations : (New e.NewEqs (Desired e.CallEqs)) e.OtherEqBlocks 
-            = ((e.Equations)e.OtherConfig);
-    ((e.PRTCEqs)e.OtherConfig) e.Equations,
-        e.Equations : (New e.NewEqs) e.OtherEqBlocks = (((New e.NewEqs (Desired)) e.OtherEqBlocks) e.OtherConfig);
-        
+    ((e.PRTCEqs)e.OtherConfig) e.Equations
+    , e.Equations : (New e.NewEqs (Desired e.CallEqs)) e.OtherEqBlocks 
+        = ((e.Equations)e.OtherConfig);
+    ((e.PRTCEqs)e.OtherConfig) e.Equations
+    , e.Equations : (New e.NewEqs) e.OtherEqBlocks
+        = (((New e.NewEqs (Desired)) e.OtherEqBlocks) e.OtherConfig);
 }
 
 $ENTRY SubstInAllEqs {
-    (e.Subst)t.PRTC,
-    t.PRTC : (((New e.NewEq (Desired e.Calls))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))e.AllOther(s.Log))
+    (e.Subst)t.PRTC
+    , t.PRTC : (((New e.NewEq (Desired e.Calls))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))e.AllOther(s.Log))
         = 
         ((
             (New <IterateSubstitute (e.Subst) e.NewEq>(Desired <Substitute (e.Subst) e.Calls>))
@@ -805,16 +861,14 @@ $ENTRY SubstInAllEqs {
         e.AllOther
         (s.Log)
         );
-    (e.Subst)e.Eqs,
-    e.Eqs : (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
+    (e.Subst)e.Eqs
+    , e.Eqs : (New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq)
         = 
        (New <IterateSubstitute (e.Subst) e.NewEq>)
-            (Grammar <SubstituteInGrammar (e.Subst) e.RegEq>)
-            (Negative <SubstituteInNegative (e.Subst) e.NegEq>)
-            (Numeric <SubstituteNumeric (e.Subst) e.NumEq>)
-            (Generic <IterateSubstitute (e.Subst)e.GenEq>)
-        
-        ;
+        (Grammar <SubstituteInGrammar (e.Subst) e.RegEq>)
+        (Negative <SubstituteInNegative (e.Subst) e.NegEq>)
+        (Numeric <SubstituteNumeric (e.Subst) e.NumEq>)
+        (Generic <IterateSubstitute (e.Subst)e.GenEq>);
     }
 
 
@@ -824,13 +878,15 @@ $ENTRY SubstituteInGrammar {
 }
 
 $ENTRY SubstituteInNegative {
-    (e.Subst)(OR ) e.Neg = <SubstituteInNegative (e.Subst)e.Neg>;
+    (e.Subst)(OR (s.Log) ) e.Neg = <SubstituteInNegative (e.Subst)e.Neg>;
     (e.Subst)  = ;
-    (e.Subst)(OR (e.Clashes) e.Other)e.Nor 
-        = (OR <SubstituteInNegative Started (e.Subst)(e.Clashes)e.Other>)
+    (e.Subst)(OR (s.Log)(e.Clashes) e.Other)e.Nor 
+        = (OR (s.Log)<SubstituteInNegative Started (e.Subst)(e.Clashes)e.Other>)
         <SubstituteInNegative (e.Subst)e.Nor>;
-    Started (e.Subst)(e.Clashes) e.Other = <SubstituteInClashes 1 (e.Subst)(e.Clashes)><SubstituteInNegative Started (e.Subst)e.Other>;
+    Started (e.Subst)(e.Clashes) e.Other
+        = <SubstituteInClashes 1 (e.Subst)(e.Clashes)><SubstituteInNegative Started (e.Subst)e.Other>;
     Started (e.Subst) = ;
+    (e.Subst) False = False;
 }
 
 $ENTRY SubstituteNumeric {
@@ -839,10 +895,10 @@ $ENTRY SubstituteNumeric {
 
 $ENTRY PutPRTCNewEq {
     t.PRTC = t.PRTC;
-  (((New e.NewEqs (Desired e.CR))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
+   (((New e.NewEqs (Desired e.CR))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
     (e.restrictions)(e.assignments)(e.Clashes)(s.Log)) (AreEqual e.NewNewEq)
         = (((New e.NewEqs (AreEqual e.NewNewEq)(Desired e.CR))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
-            (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
+        (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
 }
 
 $ENTRY GetPRTCNegativeInfo {
@@ -854,27 +910,27 @@ $ENTRY GetPRTCNegativeInfo {
 $ENTRY AddPRTCNegativeInfo {
   (((e.New)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
     (e.restrictions)(e.assignments)(e.Clashes)(s.Log)) e.OtherNeg
-        = (((e.New)(Grammar e.RegEq)(Negative e.NegEq e.OtherNeg)(Numeric e.NumEq)(Generic e.GenEq))
-            (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
+        = (((e.New)(Grammar e.RegEq)(Negative <ScreenNegatives Init e.NegEq e.OtherNeg>)(Numeric e.NumEq)(Generic e.GenEq))
+        (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
 }
 
 $ENTRY ReplacePRTCNegativeInfo {
   (((e.New)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
     (e.restrictions)(e.assignments)(e.Clashes)(s.Log)) e.OtherNeg
-        = (((e.New)(Grammar e.RegEq)(Negative e.OtherNeg)(Numeric e.NumEq)(Generic e.GenEq))
-            (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
+        = (((e.New)(Grammar e.RegEq)(Negative <ScreenNegatives Init e.OtherNeg>)(Numeric e.NumEq)(Generic e.GenEq))
+        (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
 }
 
 $ENTRY ReplacePRTCNewEqs {
     (((New e.NewEqs (Desired e.CallEqs))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
-    (e.restrictions)(e.assignments)(e.Clashes)(s.Log)) e.NewNewEqs,
-    e.NewNewEqs : 
-    {
-	e.NewSimpleEqs (Desired e.NewCalls) =
-		(((New e.NewNewEqs)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
-		    (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
-	e.NewSimpleEqs = (((New e.NewNewEqs (Desired))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
-		    (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
+    (e.restrictions)(e.assignments)(e.Clashes)(s.Log)) e.NewNewEqs
+    , e.NewNewEqs : 
+        {e.NewSimpleEqs (Desired e.NewCalls)
+            = (((New e.NewNewEqs)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
+            (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
+	e.NewSimpleEqs
+            = (((New e.NewNewEqs (Desired))(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
+            (e.restrictions)(e.assignments)(e.Clashes)(s.Log));
 	};
 }
 
@@ -991,16 +1047,21 @@ $ENTRY NullifyPRTC {
 }
 
 $ENTRY PRTCOutputForm {
-    t.PRTC,
-        <GetPRTCAllEqs t.PRTC> : (New e.NewEqs (Desired e.CR)) e.OtherEqs,
-        <GetPRTCRestrs t.PRTC> : e.restrictions,
-        <GetPRTCAsgs t.PRTC> : e.assignments =
-        (((New e.NewEqs)e.OtherEqs)(e.restrictions)(e.assignments));
+    t.PRTC
+    , <GetPRTCAllEqs t.PRTC> : (New e.NewEqs (Desired e.CR)) e.OtherEqs
+    , <GetPRTCRestrs t.PRTC> : e.restrictions
+    , <GetPRTCAsgs t.PRTC> : e.assignments
+        = (((New e.NewEqs)e.OtherEqs)(e.restrictions)(e.assignments));
 }
 
 $ENTRY FormatPRTCToPrint {
     ((e.equations)(e.restrictions)(e.assignments)(e.Clashes (Delayed e.Del))(s.Log))
-        = e.Clashes <FormatEquationsForPrint e.equations>;
+    , e.restrictions e.assignments:
+    {/* EMPTY */
+        = '  Clash: 'e.Clashes'\n'<FormatEquationsForPrint e.equations>;
+    e.Z
+        = '  Narrowings: 'e.restrictions'\n  Assignments: 'e.assignments'\n'<FormatEquationsForPrint e.equations>;
+    };
 }
 
 $ENTRY GenerateFreshPRTC {    

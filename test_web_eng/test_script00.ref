@@ -1,0 +1,67 @@
+
+/*
+ The sanitization based on the string deletion in the program below is shown to be incorrect.
+ The sanitizing procedure done by the function Delscript deletes the substring 'script' not exhausively, but up to two iterations.
+ E.g. the substrings 'script' and 'scrscriptipt' are deleted, but the substring 'sscrscriptiptcript' is transformed to
+ 'script'. 
+*/
+
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+   e.p = <Check <Delscript e.p>>;
+}
+
+Delscript {
+    e.x1 s.z1 s.z2 s.z3 s.z4 s.z5  'script' e.x2
+	 = e.x1 <Delscript s.z1 s.z2 s.z3 s.z4 s.z5  e.x2>;
+    e.x1 'script' e.x2 = <Delscript e.x1 e.x2>;
+    e.Other = e.Other;
+}
+
+Check {
+    = 'T';
+    '<script'e.x2 = 'F';
+    s.x1 e.Z = <Check e.Z>;
+}
+
+/***********************************************/
+/*          the residual program               */
+/***********************************************/
+
+/*
+
+$ENTRY Go {
+ e.x1 =  <Check_0 () (e.x1)>;
+}
+
+
+Check_0 {
+ (e.x1) (e.x2 s.z1 s.z2 s.z3 s.z4 s.z5 'script' e.x3) =  <Check_0 (e.x1 e.x2) (s.z1 s.z2 s.z3 s.z4 s.z5 e.x3)>;
+ (e.x1) (e.x2 'script' e.x3) =  <Check_0 (e.x1) (e.x2 e.x3)>;
+ (e.x1) (e.x2) =  <Check_123_0 (e.x1) (e.x2)>;
+}
+
+
+Check_123_0 {
+ () () =  'T';
+ ('<script' e.x1) (e.x2) =  'F';
+ ('<scrip') ('t' e.x1) =  'F';
+ ('<scri') ('pt' e.x1) =  'F';
+ ('<scr') ('ipt' e.x1) =  'F';
+ ('<sc') ('ript' e.x1) =  'F';
+ ('<s') ('cript' e.x1) =  'F';
+ (s.z1 e.x1) (e.x2) =  <Check_123_0 (e.x1) (e.x2)>;
+ () (s.z1 e.x1) =  <Check_13_0 e.x1>;
+}
+
+
+Check_13_0 {
+ =  'T';
+ s.z1 e.x1 =  <Check_13_0 e.x1>;
+}
+
+*/

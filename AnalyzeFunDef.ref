@@ -6,19 +6,21 @@
   Каждое описание функции оснащается информацией:
   (Pattern s.Type)
   (Recursion s.Type)
-
 */
 
 /*
   'T' - значит, что в образцах нет открытых е-переменных.
-  'N' - есть открытые е-переменные, но не повторные.
+  'N' - есть условно открытые е-переменные (значение которых точно определяется на другом скобочном уровне).
+  'D' - есть открытые е-переменные, но не повторные.
   'F' - есть открытые повторные е-переменные.
 */
 
-$EXTERN LogAnd, SetInsert;
+$EXTERN LogAnd, SetInsert, CurrentIndex,MyMax;
 
 $ENTRY AssignFunctionFeatures {
-    e.Definitions = <RecursionTypes <AssignPatternTypes e.Definitions>>;
+    e.Definitions
+    , <Br 'MaxConst='0> : e.1 
+        = <RecursionTypes <AssignPatternTypes e.Definitions>><Prout <CurrentIndex 'MaxConst'>>;
 }
 
 RecursionTypes {
@@ -32,9 +34,9 @@ RecursionTypes {
 
 AssignRecursionTypes {
     (e.Dependencies) /* EMPTY */ = /* EMPTY */;
-   (e.Dependencies) t.FDef e.Rest,
-   t.FDef : (t.fname e.Features (Sents e.Sents)),
-   e.Dependencies : e.1 (t.fname (s.Flag) e.Other) e.2
+   (e.Dependencies) t.FDef e.Rest
+   , t.FDef : (t.fname e.Features (Sents e.Sents))
+   , e.Dependencies : e.1 (t.fname (s.Flag) e.Other) e.2
        = (t.fname (Recursion s.Flag) e.Features (Sents e.Sents))<AssignRecursionTypes (e.1 e.2) e.Rest>;
 }
 
@@ -45,51 +47,81 @@ AssignPatternTypes {
 }
 
 PatternType {
-    t.Definition,
-        t.Definition : (t.fname e.Features(Sents e.Rules))
-            = (t.fname e.Features (Pattern <PatternType Started ('T') e.Rules>)(Sents e.Rules));
-    Started (s.Log)((e.LHS)e.RHS) e.OtherRules,
-    <AnalyzePattern ()()e.LHS> : (e.VarSet),
-    e.VarSet :
-    {
-     e.1 (e.v1 t.var e.v2 t.var e.v3) e.2 = 'F';
-     e.1 (t.var1 t.var2 e.v) e.2          = <PatternType Started (<LogAnd s.Log 'N'>) e.OtherRules>;
-     e.Z                                  = <PatternType Started (s.Log)e.OtherRules>;
-    };
-    Started (s.Log) /* EMPTY */ = s.Log; 
+    t.Definition
+    , t.Definition : (t.fname e.Features(Sents e.Rules))
+    , <PatternType Started ('T')()e.Rules> : (s.Log)e.ProcRules
+        = (t.fname e.Features (Pattern s.Log)(Sents e.ProcRules));
+    Started (s.Log)(e.ProcRules)((e.LHS)e.RHS) e.OtherRules
+    , <AnalyzePattern Pred 0()()e.LHS> : s.Max e.VarSets
+    , <Br 'MaxConst='<MyMax s.Max <CurrentIndex 'MaxConst'>>> : e.Arbitrary
+    , <AnalyzeOpenVarsSet ()e.VarSets> : s.CurrLog
+        = <PatternType Started (<LogAnd s.Log s.CurrLog>)(e.ProcRules ((s.CurrLog)(e.LHS)e.RHS))e.OtherRules>;
+    Started (s.Log)(e.ProcRules) /* EMPTY */ = (s.Log)e.ProcRules; 
 }
 
-AnalyzePattern {
-    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)('*' e.InBr)e.OutBr,
-    <AnalyzePattern ()()e.InBr> : ()(e.VarSetInBr)
-        = <AnalyzePattern (e.SetsOfOpenVars (e.VarSetInBr))(e.CurrentSetOfOpenVars)e.OutBr>;
+$ENTRY AnalyzePattern {
+    Pred s.Max (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)('*' e.InBr)e.OutBr
+    , <AnalyzePattern Pred 0( )( )e.InBr> : s.Max1 (e.NewSets)
+    , <MyMax <Add 1 s.Max> s.Max1> : s.NewMax
+        = <AnalyzePattern Pred s.NewMax (e.SetsOfOpenVars e.NewSets)(e.CurrentSetOfOpenVars)e.OutBr>;
+    Pred s.Max (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)(var e e.name)e.Rest
+        = <AnalyzePattern Pred s.Max (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars (var e e.name)) e.Rest>;
+    Pred s.Max (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)(par e e.name)e.Rest
+        = s.Max (e.SetsOfOpenVars((var e e.name)(par e e.name))(e.CurrentSetOfOpenVars (par e e.name)));
+    Pred s.Max (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)t.Const e.Rest
+        = <AnalyzePattern Pred <Add s.Max 1>(e.SetsOfOpenVars)(e.CurrentSetOfOpenVars) e.Rest>;
+    Pred s.Max (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)
+        = s.Max (e.SetsOfOpenVars (e.CurrentSetOfOpenVars));
+    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)('*' e.InBr)e.OutBr
+    , <AnalyzePattern ( )( )e.InBr> : (e.NewSets)
+        = <AnalyzePattern (e.SetsOfOpenVars e.NewSets)(e.CurrentSetOfOpenVars)e.OutBr>;
+    (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)(par e e.name)e.Rest
+        = (e.SetsOfOpenVars ((var e e.name)(var e e.name)(par e e.name))(e.CurrentSetOfOpenVars (par e e.name)));
     (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)(var e e.name)e.Rest
         = <AnalyzePattern (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars (var e e.name)) e.Rest>;
     (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)t.Const e.Rest
         = <AnalyzePattern (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars) e.Rest>;
     (e.SetsOfOpenVars)(e.CurrentSetOfOpenVars)
         = (e.SetsOfOpenVars (e.CurrentSetOfOpenVars));
+
+}
+
+$ENTRY AnalyzeOpenVarsSet {
+    (e.Asgs)(e.11 (t.var1 t.var2 e.02)e.12) 
+        = <AnalyzeOpenVarsSet Started ('N')(e.Asgs)(e.11 (t.var1 t.var2 e.02)e.12)>;
+    (e.Asgs)(e.Z) = 'T';
+    Started (s.Log)(e.01 (assign t.var e.Val) e.02)(e.11 (e.21 t.var e.22) e.12)
+        = <AnalyzeOpenVarsSet Started (s.Log)(e.01(assign t.var e.Val)e.02)(e.11 (e.21 e.22) e.12)>;
+    Started (s.Log)(e.Asgs)(e.11 (t.var) e.12)
+    , e.11 e.12 : e.21 (e.31 t.var e.32) e.22
+        = <AnalyzeOpenVarsSet Started (s.Log)(e.Asgs)((t.var)(e.31 e.32) e.21 e.22)>;    
+    Started (s.Log)(e.Asgs)(e.Z)
+    , e.Z :
+        {e.1 (e.v1 t.var e.v2 t.var e.v3) e.2 = 'F';
+        e.1 (t.var1 t.var2 e.v) e.2 = 'D';
+        e.Z = 'N';
+        };
 }
 
 /*
-  Если функция не содержит в правых частях вызовов, значит, эта функция может быть
-  встроена. Помечаем такие функции флагом, чтобы при прогонке на них не действовало обобщение.
+Если функция не содержит в правых частях вызовов, значит, эта функция может быть
+встроена. Помечаем такие функции флагом, чтобы при прогонке на них не действовало обобщение.
 
-  'T' - значит, что в правых частях нет вызовов функций.
-  'N' - вызовы функций есть, но только самой себя.
-  'F' - общего вида.
+'T' - значит, что в правых частях нет вызовов функций.
+'N' - вызовы функций есть, но только самой себя.
+'F' - общего вида.
 */
     BaseRecursionType {
     (t.fname e.Features (Sents e.Rules))
         = <BaseRecursionType Started t.fname () e.Rules>;
-    Started t.fname (e.Dependencies) /* NO MORE RULES */,
-    e.Dependencies :
+    Started t.fname (e.Dependencies) /* NO MORE RULES */
+    , e.Dependencies :
     { /* EMPTY */        = (t.fname ('T')(DependsOn ));
       (t.fname (s.Flag)) = (t.fname ('N')(DependsOn (t.fname ('N'))));
       e.Rest             = (t.fname ('F')(DependsOn e.Rest));
     };
-    Started t.fname (e.Dependencies) ((e.LHS) e.RHS) e.OtherRules,
-    <AnalyzeRightSide (e.Dependencies) e.RHS> : e.NewDependencies
+    Started t.fname (e.Dependencies) ((s.P)(e.LHS) e.RHS) e.OtherRules
+    , <AnalyzeRightSide (e.Dependencies) e.RHS> : e.NewDependencies
         = <BaseRecursionType Started t.fname (e.NewDependencies) e.OtherRules>;
 } 
 
@@ -98,11 +130,11 @@ BaseParameterList {
 } 
 
 AnalyzeRightSide {
-    (e.FunSet) ('*' e.InBr) e.OutBr,
-    <AnalyzeRightSide (e.FunSet) e.InBr> : e.NewFunSet
+    (e.FunSet) ('*' e.InBr) e.OutBr
+    , <AnalyzeRightSide (e.FunSet) e.InBr> : e.NewFunSet
         = <AnalyzeRightSide (e.NewFunSet) e.OutBr>;
-    (e.FunSet) (call t.fname (args (arg e.Arg))) e.Rest,
-    <AnalyzeRightSide <SetInsert (t.fname ('F')) (e.FunSet)> e.Arg> : e.NewFunSet
+    (e.FunSet) (call t.fname (args (arg e.Arg))) e.Rest
+    , <AnalyzeRightSide <SetInsert (t.fname ('F')) (e.FunSet)> e.Arg> : e.NewFunSet
         = <AnalyzeRightSide (e.NewFunSet) e.Rest>;
     (e.FunSet) t.SimpleTerm e.Rest
         = <AnalyzeRightSide (e.FunSet) e.Rest>;
@@ -110,18 +142,18 @@ AnalyzeRightSide {
 }
 
 ProcessFunctionList {
-    s.Mode (e.FunListToProcess t.FunctionData)(e.Dependencies),
-        <ExtractDependencies s.Mode t.FunctionData e.Dependencies> : e.AddFunToProcess,
-        <RenewSets 1 (e.FunListToProcess)(e.AddFunToProcess)> : e.NewFunToProcess 
+    s.Mode (e.FunListToProcess t.FunctionData)(e.Dependencies)
+    , <ExtractDependencies s.Mode t.FunctionData e.Dependencies> : e.AddFunToProcess
+    , <RenewSets 1 (e.FunListToProcess)(e.AddFunToProcess)> : e.NewFunToProcess 
         = <ProcessFunctionList 
             s.Mode (e.NewFunToProcess)(<RenewSets 0 (e.Dependencies)(e.AddFunToProcess)> t.FunctionData)>;
     s.Mode ()(e.Dependencies) = e.Dependencies;
 }
 
 ExtractDependencies {
-    Recursion t.FData e.FL,
-    t.FData : (t.fname ('T') (DependsOn )),
-    e.FL : e.FL1 (t.fname2 (s.Flag)(DependsOn e.D1 (t.fname (s.OtherFlag)) e.D2)) e.FL2
+    Recursion t.FData e.FL
+    , t.FData : (t.fname ('T') (DependsOn ))
+    , e.FL : e.FL1 (t.fname2 (s.Flag)(DependsOn e.D1 (t.fname (s.OtherFlag)) e.D2)) e.FL2
         = <ChooseRecursionFlag (t.fname2 (s.Flag)(DependsOn e.D1 e.D2))><ExtractDependencies Recursion t.FData e.FL2>;
     Recursion t.FData e.FL 
         = /* EMPTY */;

@@ -1,0 +1,2 @@
+(call ((CheckQuadFinal (1 ))271 )(args (arg (*A(par e 4963 ))A(par e 4963 )(par s 13 ))))
+(call (CheckQuadAux 3 )(args (arg (*ABBB)(*ABBBA(par e 14476 ))(call ((IsInAlphabetAux (1 ))477 )(args (arg T(par e 14476 )))))))

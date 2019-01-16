@@ -1,14 +1,14 @@
 /*
- Тест показывает, что прогонка плюс простая обработка уравнений
- иногда могут разрешить не только неквадратичные уравнения.
- Дано уравнение x'A'x = yyy. 
- Когда оно имеет решения?
- В остаточной программе построен ответ: если x состоит из одних букв 'A' и имеет нечетную длину.
+ The test shows that the algorithms of simple pre-processing of the word equations can
+ result in solving some non-quadratic equations.
+ 
+ Given the equation e.x++'A'++e.x = e.y++e.y++e.y, its solutions are strings in the language A^n with
+ the odd length.
 */
 
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 *$MST_FROM_ENTRY;
 
@@ -22,19 +22,17 @@ BadF {
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 /*
 $ENTRY Go {
- e.1 =  <InputFormat_0 e.1>;
+ e.x1 =  <InputFormat_0 e.x1>;
 }
 
 
 InputFormat_0 {
- 'A' =  'T';
- 'AAA' =  'T';
- 'A' e.1 'AAA' e.1 'A', ('A' e.1) (e.1 'A') : t.Eq1 t.Eq1 =  'T';
- e.1 =  'F';
+ e.x1 'A' e.x1, ('A' e.x1) (e.x1 'A') : t.Eq1 t.Eq1 =  'T';
+ e.x1 =  'F';
 }
 
 */

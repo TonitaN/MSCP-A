@@ -11,7 +11,7 @@
 
 
 /* из basics.ref */
-$EXTERN Substitute,IfGround,MyZero,MyOne,MyInc,FindNode, SetUnion, SetMinus, SetIntersect, SetInsert, GenPath,RenewIndices,FreshIndex,MSCPError;
+$EXTERN Substitute,FindTerm,IfGround,MyZero,MyOne,MyInc,FindNode, SetUnion, SetMinus, SetIntersect, SetInsert, GenPath,RenewIndices,FreshIndex,MSCPError;
 
 /* из Unfold_SCP.ref */
 $EXTERN InsertNode;
@@ -58,19 +58,19 @@ GenerateFunction {
    f-функцией (по Серенсену).
 */
 
-    (e.Calls)(Node (e.1 Merged With (e.Parameters) And Eigen (e.OtherPars)) (0)(Children e.Children)),
-    e.Calls : e.Calls1 ((0) t.FunName e.FunData (e.CallPars)) e.Calls2
+    (e.Calls)(Node (e.1 Merged With (e.Parameters) And Eigen (e.OtherPars)) (0)(Children e.Children))
+    , e.Calls : e.Calls1 ((0) t.FunName e.FunData (e.CallPars)) e.Calls2
         = ((ENTRY) Go 
-        <GetDefinition (<Dg 'entrypoint'>)(Node Expression (0)(()((call t.FunName (args (arg e.Parameters))))))>)
-        ((LOCAL) t.FunName <GetDefinition (e.Parameters) e.Children>);
+        <GetDefinition (<Dg 'entrypoint'>)(Node Expression (0)(()((call t.FunName (args (arg <AddBracketsToVariableList e.OtherPars>))))))>)
+        ((LOCAL) t.FunName <GetDefinition (<AddBracketsToVariableList e.Parameters>) e.Children>);
     (e.Calls)(Node (e.1 Merged With (e.Parameters) And Eigen (e.OtherPars)) (0)(Children e.Children))
         = ((ENTRY) Go 
-        <GetDefinition (<Dg 'entrypoint'>)(Node Expression (0)(()((call (InputFormat 0) (args (arg e.Parameters))))))>)
-        ((LOCAL) (InputFormat 0) <GetDefinition (e.Parameters) e.Children>);
+        <GetDefinition (<Dg 'entrypoint'>)(Node Expression (0)(()((call (InputFormat 0) (args (arg <AddBracketsToVariableList e.Parameters>))))))>)
+        ((LOCAL) (InputFormat 0) <GetDefinition (<AddBracketsToVariableList e.Parameters>) e.Children>);
 /* 3. Во всех прочих случаях порождаются определения локальных функций. */
     (e.Calls)(Node (e.1 Merged With (e.Parameters) And Eigen (e.OtherPars)) t.NodeName (Children e.Children))
     , e.Calls : e.Calls1 (t.NodeName t.FunName e.FunData (e.CallPars)) e.Calls2
-        = ((LOCAL) t.FunName <GetDefinition (e.Parameters) e.Children>);
+        = ((LOCAL) t.FunName <GetDefinition (<AddBracketsToVariableList e.Parameters>) e.Children>);
 }
 
 /* Функция переименовки переменных в определениях (чтобы переменные в них получили как можно меньшие номера). */
@@ -108,8 +108,15 @@ VariableList {
 AssignMinimalIndices {
     /* EMPTY */ = ;
     (Variable s.sort t.name) e.other
-        = (assign (Variable s.sort t.name) ((Variable s.sort <FreshIndex 'var'<Explode s.sort>'_ind'>)))
+    , <AdditionalLetter s.sort> : s.Letter
+        = (assign (Variable s.sort t.name) ((Variable s.sort <Implode s.Letter<Symb <FreshIndex 'var'<Explode s.sort>'_ind'>>>)))
 		<AssignMinimalIndices e.other>;
+}
+
+AdditionalLetter {
+    e = 'x';
+    t = 'y';
+    s = 'z';
 }
 
 /*
@@ -119,24 +126,27 @@ AssignMinimalIndices {
 
 SubstitutePrefal {
 /* 1. Подстановка завершена. */
-	(e.Subst) = ;
+    (e.Subst) = ;
 /* 2. Обработка константы. */
-	(e.Subst) s.1 e.Expr = s.1 <SubstitutePrefal (e.Subst) e.Expr>;
+    (e.Subst) s.1 e.Expr = s.1 <SubstitutePrefal (e.Subst) e.Expr>;
 /* 3. Обработка скобок. */
-	(e.Subst) (Bracket e.InBr) e.OutBr
-            = 
-            (Bracket <SubstitutePrefal (e.Subst) e.InBr>) <SubstitutePrefal (e.Subst) e.OutBr>;
+    (e.Subst) (Bracket e.InBr) e.OutBr
+        = 
+        (Bracket <SubstitutePrefal (e.Subst) e.InBr>) <SubstitutePrefal (e.Subst) e.OutBr>;
 /* 4. Вызов функции. Вариант лишь для одноместных функций. */
-	(e.Subst) (Call t.functionname e.arg)e.Expr
-            = (Call t.functionname <SubstitutePrefal (e.Subst) e.arg>) 
-            <SubstitutePrefal (e.Subst) e.Expr>;
-        (e.Subst)(Condition (Expression e.Expr)(Pattern e.Patt)) e.Rest
-            = (Condition (Expression <SubstitutePrefal (e.Subst)e.Expr>)(Pattern e.Patt))
-                <SubstitutePrefal (e.Subst)e.Rest>;
+    (e.Subst) (Call t.functionname e.arg)e.Expr
+        = (Call t.functionname <SubstitutePrefal (e.Subst) e.arg>) 
+        <SubstitutePrefal (e.Subst) e.Expr>;
+    (e.Subst)(Condition (Expression e.Expr)(Pattern e.Patt)) e.Rest
+        = (Condition (Expression <SubstitutePrefal (e.Subst)e.Expr>)(Pattern e.Patt))
+            <SubstitutePrefal (e.Subst)e.Rest>;
 /* 5. Обработка имени переменной либо параметра. Случай, когда подстановка для него есть. */
-	(e.Subst1 (assign t.NameAndTypeInfo (e.Val)) e.Subst2) t.NameAndTypeInfo e.Expr 
-            = e.Val 
-            <SubstitutePrefal (e.Subst1 (assign t.NameAndTypeInfo (e.Val)) e.Subst2) e.Expr>;
+    (e.Subst1 (assign t.NameAndTypeInfo (e.Val)) e.Subst2) t.NameAndTypeInfo e.Expr 
+        = e.Val 
+        <SubstitutePrefal (e.Subst1 (assign t.NameAndTypeInfo (e.Val)) e.Subst2) e.Expr>;
+/* 6. Если подстановки нет - параметр не существенный и заменяем его на пустое слово. */
+    (e.Subst) t.NameAndTypeInfo e.Expr 
+        = <SubstitutePrefal (e.Subst) e.Expr>;
 /*
     	(e.Subst)(Variable e.other) e.Expr
                 = <MSCPError ('Existential variable in pattern: ')(Variable e.other)>; 
@@ -178,7 +188,8 @@ SimplifySubstitutedEq {
 /* Перевод выражения из внутреннего языка MSCP в язык prefal. */
 $ENTRY ConvertPrefal {
      = ;
-     s.1 e.1 = s.1 <ConvertPrefal e.1>;
+    s.N e.x
+         = s.N <ConvertPrefal e.x>;
     (par s.sort t.data) e.other = (Variable s.sort t.data)<ConvertPrefal e.other>;
     (weval t.type t.data) e.other = <MSCPError ('Existential variable in pattern: ')((weval t.type t.data))>;
     ('*' e.1) e.2 = (Bracket' '<ConvertPrefal e.1>)<ConvertPrefal e.2>;
@@ -259,38 +270,41 @@ SetInsertByFlag {
 */
 
 NumerateAllFunctions {
-	(e.Ids) = ;
+    (e.Ids) = ;
 /*
     	(e.Ids) e.1 (t.NodeName Let e.FunD1) e.2 (t.NodeName e.FunD2) e.3 = <NumerateAllFunctions (e.Ids)e.1 (t.NodeName e.FunD2) e.2 e.3>;
 	(e.Ids) e.1 (t.NodeName e.FunD1) e.2 (t.NodeName Let e.FunD2) e.3 = <NumerateAllFunctions (e.Ids)e.1 (t.NodeName e.FunD1) e.2 e.3>; 
 */
-
-	(e.Ids) e.1 (t.NodeName e.FunD1) e.2 (t.NodeName e.FunD2) e.3 
-            = <NumerateAllFunctions (e.Ids)e.1 (t.NodeName e.FunD1) e.2 e.3>;
-	(e.Ids (t.FName s.Id) e.Ids1)
-	e.0 (t.NodeName t.FName e.Args1) e.1 (t.NodeName1 t.FName e.Args2) e.2,
-	<MyInc s.Id> : s.NewId	=
-		(t.NodeName (t.FName s.NewId) e.Args1)
-		<NumerateAllFunctions 
-			(e.Ids (t.FName s.NewId) e.Ids1)
-			e.0 e.1 (t.NodeName1 t.FName e.Args2) e.2
-		>;	
-	(e.Ids)
-	e.0 (t.NodeName t.FName e.Args1) e.1 (t.NodeName1 t.FName e.Args2) e.2,
-	<MyOne> : s.NewId	=
-		(t.NodeName (t.FName s.NewId) e.Args1)
-		<NumerateAllFunctions
-			(e.Ids (t.FName s.NewId))
-			e.0 e.1 (t.NodeName1 t.FName e.Args2) e.2
-		>;
-        (e.Ids (t.FName s.Id) e.Ids1)
-            (t.NodeName t.FName e.Args1) e.1,
-            <MyInc s.Id> : s.NewId	= 
-                (t.NodeName (t.FName s.NewId) e.Args1)
-		<NumerateAllFunctions 
-			(e.Ids (t.FName s.NewId)) e.1>;
-	(e.Ids)(t.NodeName t.FName e.Args) e.2 = (t.NodeName (t.FName <MyZero>) e.Args)
-		<NumerateAllFunctions (e.Ids) e.2>;			
+    (e.Ids) e.1 (t.NodeName e.FunD1) e.2 (t.NodeName e.FunD2) e.3 
+        = <NumerateAllFunctions (e.Ids) e.1 (t.NodeName e.FunD1) e.2 e.3>;
+    (e.Ids)
+    e.0 (t.NodeName t.FName e.Args1) e.1 (t.NodeName1 t.FName e.Args2) e.2
+    , e.Ids : 
+        {e.Ids0 (t.FName s.Id) e.Ids1
+        , <MyInc s.Id> : s.NewId
+            =
+            (t.NodeName (t.FName s.NewId) e.Args1)
+            <NumerateAllFunctions 
+            (e.Ids0 (t.FName s.NewId) e.Ids1)
+            e.0 e.1 (t.NodeName1 t.FName e.Args2) e.2
+            >;
+        e.Z
+            =
+            (t.NodeName (t.FName <MyZero>) e.Args1)
+            <NumerateAllFunctions
+                (e.Ids (t.FName <MyZero>))
+                e.0 e.1 (t.NodeName1 t.FName e.Args2) e.2
+            >;
+        };
+    (e.Ids (t.FName s.Id) e.Ids1)(t.NodeName t.FName e.Args1) e.1
+    , <MyInc s.Id> : s.NewId
+        = 
+        (t.NodeName (t.FName s.NewId) e.Args1)
+        <NumerateAllFunctions 
+            (e.Ids (t.FName s.NewId) e.Ids1) e.1>;
+    (e.Ids)(t.NodeName t.FName e.Args) e.2
+        = (t.NodeName (t.FName <MyZero>) e.Args)
+            <NumerateAllFunctions (e.Ids) e.2>;			
 }
 
 /*
@@ -298,51 +312,51 @@ NumerateAllFunctions {
    Найти все параметры, на которые имеются назначения, и вернуть их количество + их список.
 */
 GetArgs {
-	(e.Vars) = <GetArity (<MyZero>) e.Vars>(<AddBracketsToVariableList e.Vars>);
-	(e.Vars)(assign (par e.New) ((par e.Old)))e.assignments = 
-		<GetArgs <SetInsert (par e.New) (e.Vars)> e.assignments>;
-        ()e.Val = <GetArgs (<FindAllPars e.Val>)>;
+    (e.Vars) = <GetArity (<MyZero>) e.Vars>(e.Vars);
+    (e.Vars)(assign (par e.New) ((par e.Old)))e.assignments
+        = <GetArgs <SetInsert (par e.New) (e.Vars)> e.assignments>;
+    ()e.Val = <GetArgs (<FindAllPars e.Val>)>;
 }
 
 /* Посчитать количество элементов в списке (местность генерируемой функции). */
 GetArity {
-	(s.Arity) = (s.Arity);
-	(s.Arity) t.var e.other = <GetArity (<MyInc s.Arity>) e.other>;
+    (s.Arity) = (s.Arity);
+    (s.Arity) t.var e.other = <GetArity (<MyInc s.Arity>) e.other>;
 }
 
 /* Продолжение порождения программы по дереву. Уже имеется список всех узлов-функций с местностями и наборами параметров. */
 YieldGenAux {
-        (e.FunList)t.Tree,
-        <GetNodeChildren t.Tree> : ,
-        <GetNodeConfig t.Tree> : e.FullConf,
-        <GetNodeName t.Tree> : t.InitName
+    (e.FunList)t.Tree
+    , <GetNodeChildren t.Tree> : /* EMPTY */
+    , <GetNodeConfig t.Tree> : e.FullConf
+    , <GetNodeName t.Tree> : t.InitName
         = 
             <FinalizeProgram 
 		(Node Expression t.InitName (()(e.FullConf)))(e.FunList)
             >;
-	(e.FunList) t.Tree,
-        <GetNodeChildren t.Tree> : e.ChildData,
-        <GetNodeLets t.Tree> : (Let e.Assignments In (e.Expr)),
-        <GetNodeName t.Tree> : t.InitName,
-        <LetNodesMerging
-		(e.FunList)
-		(Node (Let e.Assignments) t.InitName (()(e.Expr)) (Children e.ChildData))
-        > : (e.NewFunList) t.ProcNode
+    (e.FunList) t.Tree
+    , <GetNodeChildren t.Tree> : e.ChildData
+    , <GetNodeLets t.Tree> : (Let e.Assignments In (e.Expr))
+    , <GetNodeName t.Tree> : t.InitName
+    , <LetNodesMerging
+        (e.FunList)
+        (Node (Let e.Assignments) t.InitName (()(e.Expr)) (Children e.ChildData))
+    > : (e.NewFunList) t.ProcNode
 	= 
             <FinalizeProgram t.ProcNode
                 <ContinueProgramGeneration ((t.InitName))(e.NewFunList)t.Tree (e.NewFunList)>
             >;
         
-        (e.FunList) t.Tree,
-        <GetNodeChildren t.Tree> : e.ChildData,
-        <GetNodeConfig t.Tree> : e.FullConf,
-        <GetNodeName t.Tree> : t.InitName,
-        <PutNodeChildren t.Tree > : t.NewNode,        
-        <RaiseSuccessors
-		(<AddBracketsToVariableList <FindAllPars e.FullConf>>)()
-		(e.FunList)
-		t.NewNode e.ChildData
-        > : (e.NewFunList) t.ProcNode
+    (e.FunList) t.Tree
+    , <GetNodeChildren t.Tree> : e.ChildData
+    , <GetNodeConfig t.Tree> : e.FullConf
+    , <GetNodeName t.Tree> : t.InitName
+    , <PutNodeChildren t.Tree > : t.NewNode
+    , <RaiseSuccessors
+        (<FindAllPars e.FullConf>)()
+        (e.FunList)
+        t.NewNode e.ChildData
+    > : (e.NewFunList) t.ProcNode
 	= 
             <FinalizeProgram t.ProcNode
                 <ContinueProgramGeneration ((t.InitName))(e.NewFunList)t.Tree (e.NewFunList)>
@@ -351,36 +365,39 @@ YieldGenAux {
 
 /* Головная функция модуля. Дано дерево - граф развертки программы. По нему строит остаточную программу. */
 $ENTRY YieldProgramGeneration {
-	t.Tree0, 
-	<PopAllSubtrees t.Tree0> : t.Tree,
-	<FindAllFunctionsInTree t.Tree()t.Tree> : (e.Fun), 
-	(<NumerateAllFunctions () e.Fun>) : (e.FunList),
-        <ProcessNodesRestrictions (e.FunList)t.Tree> : t.NewTree (e.NewFunList)
-            = 
-                <RenewIndices 'Let_Name'>
-                <Putout 1>
-                <Putout 1 'Roots of the functions:'>
-                <Putout 1 e.NewFunList><Putout 1>
-                <Putout 1 t.NewTree>
-                <YieldGenAux (e.NewFunList)t.NewTree>;
+    t.Tree0
+    , <PopAllSubtrees t.Tree0> : t.Tree
+    , <FindAllFunctionsInTree t.Tree()t.Tree> : (e.Fun)
+    , (<NumerateAllFunctions () e.Fun>) : (e.FunList)
+    , <ProcessNodesRestrictions (e.FunList)t.Tree> : t.NewTree (e.NewFunList)
+        = 
+            <RenewIndices 'Let_Name'>
+            <Putout 1>
+            <Putout 1 'Roots of the functions:'>
+            <Putout 1 e.NewFunList><Putout 1>
+            <Putout 1 t.NewTree>
+            <YieldGenAux (e.NewFunList)t.NewTree>;
 }
 
 PopAllSubtrees {
-	= ;
-	t.Node e.Nodes,
-	<GetNodeLets t.Node> : (Subtree s.Num)
-		= <PopAllSubtrees <Dg 'Subtree'<Symb s.Num>> e.Nodes>;
-	t.Node e.Nodes,
-	<GetNodeChildren t.Node> : e.Children,
-	<PopAllSubtrees e.Children> : e.NewChildren,
-	<PutNodeChildren t.Node e.NewChildren> : t.ProcessedNode
-		= t.ProcessedNode <PopAllSubtrees e.Nodes>;
+    /*EMPTY */ = /* EMPTY */;
+    t.Node e.Nodes
+    , <GetNodeLets t.Node> : (Subtree s.Num)
+        = <PopAllSubtrees <Dg 'Subtree'<Symb s.Num>> e.Nodes>;
+    t.Node e.Nodes
+    , <GetNodeChildren t.Node> : e.Children
+    , <PopAllSubtrees e.Children> : e.NewChildren
+    , <PutNodeChildren t.Node e.NewChildren> : t.ProcessedNode
+        = t.ProcessedNode <PopAllSubtrees e.Nodes>;
 }
 
 /* Построить список параметров, каждый из которых заключён в скобки. */
 AddBracketsToVariableList {
-    = ;
+    /* EMPTY */ = /* EMPTY */;
     Started = ;
+    Started (par t.type t.name) e.other
+    , <FindTerm t.type t s> : 'T'
+        = (par t.type t.name)<AddBracketsToVariableList Started e.other>;
     Started t.var e.other = ('*' t.var)<AddBracketsToVariableList Started e.other>;
     t.var = t.var;
     t.var e.other = <AddBracketsToVariableList Started t.var e.other>;    
@@ -388,8 +405,8 @@ AddBracketsToVariableList {
 
 /* Удалить функцию, имеющую корнем данную вершину, из списка функций. */
 DeleteFun {
-	t.NodeName e.List1 (t.NodeName e.Data) e.List2 = e.List1 e.List2;
-	t.NodeName e.List = e.List;
+    t.NodeName e.List1 (t.NodeName e.Data) e.List2 = e.List1 e.List2;
+    t.NodeName e.List = e.List;
 }
 
 /*
@@ -399,22 +416,21 @@ DeleteFun {
 */
 
 ContinueProgramGeneration {
-        (e.ProcessedFunList)(e.CurrFunList)t.Tree () = (e.CurrFunList); 
-        (e.ProcessedFunList)(e.CurrFunList)t.Tree ((t.FunNode e.OtherInfo) e.FunList),
-        e.ProcessedFunList : e.1 (t.FunNode e.3) e.2
+    (e.ProcessedFunList)(e.CurrFunList)t.Tree ( ) = (e.CurrFunList); 
+    (e.ProcessedFunList)(e.CurrFunList)t.Tree ((t.FunNode e.OtherInfo) e.FunList)
+    , e.ProcessedFunList : e.1 (t.FunNode e.3) e.2
 	= 
 	<ContinueProgramGeneration (e.ProcessedFunList)(e.CurrFunList)t.Tree (e.FunList)>;
-
-        (e.ProcessedFunList)(e.CurrFunList)t.Tree ((t.NodeName e.Function (e.pars))e.FunList),
-	<FindNode (<GenPath t.NodeName>) t.Tree> : t.NodeToProcess,
-        <GetNodeChildren t.NodeToProcess> : e.ChildData,
-        e.ChildData :
+    (e.ProcessedFunList)(e.CurrFunList)t.Tree ((t.NodeName e.Function (e.pars))e.FunList)
+    , <FindNode (<GenPath t.NodeName>) t.Tree> : t.NodeToProcess
+    , <GetNodeChildren t.NodeToProcess> : e.ChildData
+    , e.ChildData :
         { /* EMPTY */
             = <ContinueProgramGeneration (e.ProcessedFunList)(e.CurrFunList)t.Tree (e.FunList)>;
-        t.Child e.RestChilds,
-        <PutNodeChildren t.NodeToProcess> : t.NNodeToProcess,
-        <RaiseSuccessors 
-			(e.pars)()
+        t.Child e.RestChilds
+        , <PutNodeChildren t.NodeToProcess> : t.NNodeToProcess
+        , <RaiseSuccessors 
+			(e.pars)( )
 			(e.CurrFunList)
 			t.NNodeToProcess
 			e.ChildData
@@ -425,13 +441,17 @@ ContinueProgramGeneration {
         };
 }
 
-/* Выделение из параметров тех, которые заведомо используются в вычислении программы. */
+/* Выделение из параметров тех, которые ВОЗМОЖНО используются в вычислении программы. */
 ClassifyPars {
-    ()(e.Vals)(e.TruePars) = ()(e.TruePars);
-    (e.PList1 t.par e.PList2)(e.Restrs1 (assign t.par t.data) e.Restrs2) (e.TruePars) = 
-            <ClassifyPars (e.PList1 t.par e.PList2)(e.Restrs1 e.Restrs2) <SetInsert t.par (e.TruePars)>>;
-    (e.PList)(e.AllVals)(e.TruePars), <SetUnion (e.TruePars)<SetIntersect (e.PList)(<FindAllPars e.AllVals>)>> : (e.NewTruePars) = 
-        (e.PList)(e.NewTruePars);
+    ( )(e.Vals)(e.TruePars) = ( )(e.TruePars);
+    (e.PList1 t.par e.PList2)(e.Restrs1 (assign t.par t.data) e.Restrs2) (e.TruePars)
+        = <ClassifyPars (e.PList1 t.par e.PList2)(e.Restrs1 e.Restrs2) <SetInsert t.par (e.TruePars)>>;
+    (e.PList)(e.Data (assign t.otherpar (e.Data)) e.OtherRestrs) (e.TruePars)
+    , <SetUnion (e.TruePars)<SetIntersect (e.PList)(<FindAllPars e.Data>)>> : (e.NewTruePars)
+        = <ClassifyPars (e.PList)(e.Data e.OtherRestrs) (e.NewTruePars)>;
+    (e.PList)(e.AllVals)(e.TruePars)
+    , <SetUnion (e.TruePars)<SetIntersect (e.PList)(<FindAllPars e.AllVals>)>> : (e.NewTruePars)
+        = (e.PList)(e.NewTruePars);
 }
 
 /* Найти все параметры в выражении (списком без скобок) */
@@ -489,75 +509,76 @@ RaiseSuccessors {
     0-1. Разбор потомков окончен.
    Меняем статус узла на объединенный. 
 */
-
-    (e.AllPars)(e.EigenPars)(e.Calls) t.Node,
-    <GetNodeName t.Node> : t.NodeName,
-    <GetNodeChildren t.Node> : e.Processed,
-    e.Calls : e.Calls1 (t.NodeName t.FunName e.OtherData) e.Calls2    
+    (e.AllPars)(e.EigenPars)(e.Calls) t.Node
+    , <GetNodeName t.Node> : t.NodeName
+    , <GetNodeChildren t.Node> : e.Processed
+    , e.Calls : e.Calls1 (t.NodeName t.FunName e.OtherData) e.Calls2    
         = 
-		(e.Calls)<Putout 1 'Successors are raised:'>
-                <Put 1 
-                    (Node (Function t.FunName Merged With (e.AllPars) And Eigen (e.EigenPars)) t.NodeName (Children e.Processed))>;
+        (e.Calls)<Putout 1 'Successors are raised:'>
+        <Put 1 
+            (Node (Function t.FunName Merged With (e.AllPars) And Eigen (e.EigenPars)) t.NodeName (Children e.Processed))
+        >;
 
-    (e.AllPars)(e.EigenPars)(e.Calls) t.Node,
-    <GetNodeName t.Node> : t.NodeName,
-    <GetNodeChildren t.Node> : e.Processed
+    (e.AllPars)(e.EigenPars)(e.Calls) t.Node
+    , <GetNodeName t.Node> : t.NodeName
+    , <GetNodeChildren t.Node> : e.Processed
         = 
-		(e.Calls)<Putout 1 'Successors are raised:'>
-                <Put 1 (Node (Function Go Merged With (e.AllPars) And Eigen (e.EigenPars)) t.NodeName (Children e.Processed))>;
-
+        (e.Calls)<Putout 1 'Successors are raised:'>
+        <Put 1 (Node (Function Go Merged With (e.AllPars) And Eigen (e.EigenPars)) t.NodeName (Children e.Processed))
+        >;
 /* 1. Дочерний узел указан в списке функций - заменяем его вызовом. */
-    (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings,
-    <GetNodeRestrictions t.ChildNode> : e.Restrictions,
-    <GetNodeNewEqs t.ChildNode> : e.NewEquations,
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    e.Calls : e.Calls1 (t.ChildNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2,
-    <PutNodeNewChild 
+    (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings
+    , <GetNodeRestrictions t.ChildNode> : e.Restrictions
+    , <GetNodeNewEqs t.ChildNode> : e.NewEquations
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , e.Calls : e.Calls1 (t.ChildNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
+    , <PutNodeNewChild 
         t.Node 
-        (Node Expression t.ChildNodeName ((e.Restrictions e.NewEquations)((call t.FunName (args (arg e.CallPars))))))
+        (Node Expression t.ChildNodeName ((e.Restrictions e.NewEquations)((call t.FunName (args (arg <AddBracketsToVariableList e.CallPars>))))))
     > : t.UpdatedNode
         =
         <RaiseSuccessors 
-            <ClassifyPars (e.AllPars)(e.Restrictions e.NewEquations) (e.EigenPars)>
+            <ClassifyPars (e.AllPars)(e.Restrictions e.NewEquations e.CallPars) (e.EigenPars)>
             (e.Calls)
             t.UpdatedNode
             e.Siblings
         >;
 
-/* 2. Дочерний узел есть зацикливание */
-    (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings,
-    <GetNodeStatus t.ChildNode> : (Looped To t.FunNodeName With e.Assignments),
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    <GetNodeRestrictions t.ChildNode> : e.Restrictions,
-    <GetNodeNewEqs t.ChildNode> : e.NewEquations,
-    e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
+/* 3. Дочерний узел есть зацикливание */
+    (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings
+    , <GetNodeStatus t.ChildNode> : (Looped To t.FunNodeName With e.Assignments)
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , <GetNodeRestrictions t.ChildNode> : e.Restrictions
+    , <GetNodeNewEqs t.ChildNode> : e.NewEquations
+    , e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
+    , <GetNodeName t.Node> : t.ThisNodeName
         =
         <RaiseSuccessors 
-            <ClassifyPars (e.AllPars)(e.Restrictions) (e.EigenPars)>
+            <ClassifyPars (e.AllPars)(e.Restrictions <IfNotEqual t.ThisNodeName t.FunNodeName e.Assignments>) (e.EigenPars)>
             (e.Calls)
             <PutNodeNewChild 
                 t.Node 
                 (Node Expression t.ChildNodeName
-                ((e.Restrictions e.NewEquations)((call t.FunName (args (arg <IterateSubstitute (e.Assignments)e.CallPars>)))))
+                ((e.Restrictions e.NewEquations)((call t.FunName (args (arg <IterateSubstitute (e.Assignments)<AddBracketsToVariableList e.CallPars>>)))))
                 )
             >
             e.Siblings
         >;
 
-
-/* 3. Дочерний узел есть let-выражение. */
-   (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings,
-   <GetNodeLets t.ChildNode> : (Let e.LetAssignments In (e.OuterConf)),
-   <GetNodeRestrictions t.ChildNode> : e.Restrictions,
-   <GetNodeName t.ChildNode> : t.ChildNodeName,
-   <GetNodeNewEqs t.ChildNode> : e.NewEquations,
-   <GetNodeChildren t.ChildNode> : e.ChildData,
-    <LetNodesMerging (e.Calls)(Node 
-                        (Let e.LetAssignments) 
-                        t.ChildNodeName 
-                        ((e.Restrictions e.NewEquations)(e.OuterConf))
-                        (Children <RestrictionsToEquations (e.LetAssignments) e.ChildData>)
-                    )
+/* 5. Дочерний узел есть let-выражение. */
+   (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings
+   , <GetNodeLets t.ChildNode> : (Let e.LetAssignments In (e.OuterConf))
+   , <GetNodeRestrictions t.ChildNode> : e.Restrictions
+   , <GetNodeName t.ChildNode> : t.ChildNodeName
+   , <GetNodeNewEqs t.ChildNode> : e.NewEquations
+   , <GetNodeChildren t.ChildNode> : e.ChildData
+   , <LetNodesMerging (e.Calls)
+       (Node 
+            (Let e.LetAssignments) 
+            t.ChildNodeName 
+            ((e.Restrictions e.NewEquations)(e.OuterConf))
+            (Children <RestrictionsToEquations (e.LetAssignments) e.ChildData>)
+        )
     > : (e.NewCalls) t.ProcessedLetNode
         =
         <RaiseSuccessors 
@@ -567,12 +588,12 @@ RaiseSuccessors {
             e.Siblings
         >;
 
-/* 4. Дочерний узел содержит ветвление, и это не узел, указанный в списке функций - переходим к его потомкам. */
-    (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings,
-    <GetNodeChildren t.ChildNode> : e.SuccNodes,
-    e.SuccNodes : t.1 e.1,
-    <GetNodeRestrictions t.ChildNode> : e.Restrictions,
-    <GetNodeNewEqs t.ChildNode> : e.Equations
+/* 2. Дочерний узел содержит ветвление, и это не узел, указанный в списке функций - переходим к его потомкам. */
+    (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings
+    , <GetNodeChildren t.ChildNode> : e.SuccNodes
+    , e.SuccNodes : t.1 e.1
+    , <GetNodeRestrictions t.ChildNode> : e.Restrictions
+    , <GetNodeNewEqs t.ChildNode> : e.Equations
         =
         <RaiseSuccessors
             <ClassifyPars (e.AllPars)(e.Restrictions e.Equations) (e.EigenPars)>
@@ -583,12 +604,13 @@ RaiseSuccessors {
             e.Siblings
         >;
         
-/* 5. Дочерний узел есть объектное выражение (нет потомков, нет стека). */
-   (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings,
-   <GetNodeRestrictions t.ChildNode> : e.Restrictions,
-   <GetNodeNewEqs t.ChildNode> : e.Equations,
-   <GetNodeStack t.ChildNode> : ((assign t.stackvar (e.Val))),
-   <GetNodeName t.ChildNode> : t.ChildNodeName =
+/* 4. Дочерний узел есть объектное выражение (нет потомков, нет стека). */
+   (e.AllPars)(e.EigenPars)(e.Calls) t.Node t.ChildNode e.Siblings
+   , <GetNodeRestrictions t.ChildNode> : e.Restrictions
+   , <GetNodeNewEqs t.ChildNode> : e.Equations
+   , <GetNodeStack t.ChildNode> : ((assign t.stackvar (e.Val)))
+   , <GetNodeName t.ChildNode> : t.ChildNodeName
+       =
         <RaiseSuccessors 
             <ClassifyPars (e.AllPars)(e.Restrictions e.Equations e.Val) (e.EigenPars)>
             (e.Calls)
@@ -600,6 +622,11 @@ RaiseSuccessors {
         >;
 }
 
+IfNotEqual {
+    t.1 t.1 e.Data = /* EMPTY */;
+    t.1 t.2 e.Data = e.Data;
+}
+
 GetLetNode {
 /*   
     e.1 (Node (Let e.Let) e.Other) e.2 = (Node (Let e.Let) e.Other); 
@@ -607,53 +634,53 @@ GetLetNode {
     e.1 (Node t.Status t.Name (t.Rest t.Eqs ((Let e.Let)) e.Other)e.ChInfo) e.2
          = (Node t.Status t.Name (t.Rest t.Eqs ((Let e.Let)) e.Other)e.ChInfo);
     e.Z 
-        = ;
+        = /* EMPTY */;
 }
 
 /* Обработка let-узла дерева (подклейка его дочерних ветвей вверх.) */
 LetNodesMerging {
 /* 1. У данного let-узла есть дочерний let-узел. Сначала получаем выражение из него. */
-    (e.Calls) t.NNode,
-    <GetLetNode <GetNodeChildren t.NNode>> : t.ChildNode,
-    <GetNodeLets t.ChildNode> : (Let e.ChAssignments In (e.ChildConf)),
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    <GetNodeChildren t.ChildNode> : e.GrChildData,
-    <LetNodesMerging 
-                    (e.Calls)
-                    (Node (Let e.ChAssignments) t.ChildNodeName (()(e.ChildConf))(Children e.GrChildData))
-                > : (e.NewCalls) t.NewChildNode
+    (e.Calls) t.NNode
+    , <GetLetNode <GetNodeChildren t.NNode>> : t.ChildNode
+    , <GetNodeLets t.ChildNode> : (Let e.ChAssignments In (e.ChildConf))
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , <GetNodeChildren t.ChildNode> : e.GrChildData
+    , <LetNodesMerging 
+        (e.Calls)
+        (Node (Let e.ChAssignments) t.ChildNodeName (()(e.ChildConf))(Children e.GrChildData))
+    > : (e.NewCalls) t.NewChildNode
         =
        <LetNodesMerging 
-        (e.NewCalls)
-        <ReplaceNodeChild t.NNode t.NewChildNode>
+            (e.NewCalls)
+            <ReplaceNodeChild t.NNode t.NewChildNode>
         >;
 /* 2. Главный дочерний узел (отсутствующий в списке назначений) есть корень функции. */
-    (e.Calls) (Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.FirstNode e.Ch2,
-    <GetNodeName t.FirstNode> : (e.NodeName 0),
-    e.Calls : e.Calls1 ((e.NodeName 0) t.FunName e.OtherData (e.CallPars)) e.Calls2 
+    (e.Calls) (Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.FirstNode e.Ch2
+    , <GetNodeName t.FirstNode> : (e.NodeName 0)
+    , e.Calls : e.Calls1 ((e.NodeName 0) t.FunName e.OtherData (e.CallPars)) e.Calls2 
         = <LetNodesMerging (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)
-            ((call t.FunName (args (arg e.CallPars)))))(Children e.Ch2))>;
+            ((call t.FunName (args (arg <AddBracketsToVariableList e.CallPars>)))))(Children e.Ch2))>;
     
-/* 3. Главный дочерний узел (отсутствующий в списке назначений) есть зацикливание. */
-    (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.ChildNode e.Ch2,
-    <GetNodeStatus t.ChildNode> : (Looped To t.FunNodeName With e.ChAssignments),
-    <GetNodeName t.ChildNode> : (e.NodeName 0),
-    e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
+/* 2а. Главный дочерний узел (отсутствующий в списке назначений) есть зацикливание. */
+    (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.ChildNode e.Ch2
+    , <GetNodeStatus t.ChildNode> : (Looped To t.FunNodeName With e.ChAssignments)
+    , <GetNodeName t.ChildNode> : (e.NodeName 0)
+    , e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
         =
         <LetNodesMerging 
             (e.Calls)
             (Node 
                 (Let e.LetAssignments) 
                 (e.NodeName) 
-                ((e.Restriction)((call t.FunName (args (arg <IterateSubstitute (e.ChAssignments)e.CallPars >)))))
+                ((e.Restriction)((call t.FunName (args (arg <IterateSubstitute (e.ChAssignments)<AddBracketsToVariableList e.CallPars> >)))))
                 (Children e.Ch2)
             )
         >;
-/* 4. Дочерний узел (не назначение) есть константное выражение, получившееся преобразованием let-узла. */
-    (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : (Node Expression (e.NodeName 0) (()(e.Val))) e.Ch2
+/* 3. Дочерний узел (не назначение) есть константное выражение, получившееся преобразованием let-узла. */
+    (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : (Node Expression (e.NodeName 0) (()(e.Val))) e.Ch2
         =
         <LetNodesMerging 
             (e.Calls)
@@ -664,10 +691,10 @@ LetNodesMerging {
                 (Children e.Ch2)
             )
         >;
-/* 5. Дочерний узел-назначение есть константное выражение, получившееся преобразованием let-узла. */
-    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : (Node Expression t.ChildNodeName (()(e.Val))) e.Ch2,
-    e.LetAssignments : (t.ChildNodeName (assign t.par t.oldval)) e.Lt2
+/* 5а. Дочерний узел-назначение есть константное выражение, получившееся преобразованием let-узла. */
+    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : (Node Expression t.ChildNodeName (()(e.Val))) e.Ch2
+    , e.LetAssignments : (t.ChildNodeName (assign t.par t.oldval)) e.Lt2
         =
         <LetNodesMerging 
             (e.Calls)
@@ -678,13 +705,13 @@ LetNodesMerging {
                 (Children e.Ch2)
             )
         >;
-/* 6. Дочерний узел (не назначение) есть константное выражение. */
-    (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.ChildNode e.Ch2,
-    <GetNodeStack t.ChildNode> : ((assign t.stackvar (e.Val))),
-    <IfGround e.Val> : 'T',
-    <GetNodeConfig t.ChildNode> : e.ParConfig,
-    <GetNodeName t.ChildNode> : (e.NodeName 0)
+/* 3а. Дочерний узел (не назначение) есть константное выражение. */
+    (e.Calls)(Node (Let e.LetAssignments) (e.NodeName) ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.ChildNode e.Ch2
+    , <GetNodeStack t.ChildNode> : ((assign t.stackvar (e.Val)))
+    , <IfGround e.Val> : 'T'
+    , <GetNodeConfig t.ChildNode> : e.ParConfig
+    , <GetNodeName t.ChildNode> : (e.NodeName 0)
         =
         <LetNodesMerging 
             (e.Calls)
@@ -695,46 +722,46 @@ LetNodesMerging {
                 (Children e.Ch2)
             )
         >;
-/* 7. Узел-назначение, дочерний к let-узлу, есть корень некоторой функции. */
-    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.ChildNode e.Ch2,
-    <GetNodeName t.ChildNode> : t.FunNodeName,
-    e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2,
-    e.LetAssignments : (t.FunNodeName (assign t.par t.val)) e.Asg2
+/* 4. Узел-назначение, дочерний к let-узлу, есть корень некоторой функции. */
+    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.ChildNode e.Ch2
+    , <GetNodeName t.ChildNode> : t.FunNodeName
+    , e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
+    , e.LetAssignments : (t.FunNodeName (assign t.par t.val)) e.Asg2
         =
         <LetNodesMerging 
             (e.Calls)
             (Node 
                 (Let e.Asg2) 
                 t.NodeName 
-                ((e.Restriction)(<Substitute ((assign t.par ((call t.FunName (args (arg e.CallPars))))))e.Conf>))
+                ((e.Restriction)(<Substitute ((assign t.par ((call t.FunName (args (arg <AddBracketsToVariableList e.CallPars>))))))e.Conf>))
                 (Children e.Ch2)
             )
         >;
-/* 8. Узел-назначение, дочерний к let-узлу, есть зацикливание (вызов функции). */
-    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.ChildNode e.Ch2,
-    <GetNodeStatus t.ChildNode> :(Looped To t.FunNodeName With e.ChAssignments),
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2,
-    e.LetAssignments : (t.ChildNodeName (assign t.par t.val)) e.Asg2 
+/* 4а. Узел-назначение, дочерний к let-узлу, есть зацикливание (вызов функции). */
+    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.ChildNode e.Ch2
+    , <GetNodeStatus t.ChildNode> :(Looped To t.FunNodeName With e.ChAssignments)
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , e.Calls : e.Calls1 (t.FunNodeName t.FunName e.OtherData (e.CallPars)) e.Calls2
+    , e.LetAssignments : (t.ChildNodeName (assign t.par t.val)) e.Asg2 
         =
         <LetNodesMerging 
             (e.Calls)
             (Node 
                 (Let e.Asg2) 
                 t.NodeName 
-                ((e.Restriction)(<Substitute ((assign t.par ((call t.FunName (args (arg <Substitute (e.ChAssignments)e.CallPars>))))))e.Conf>))
+                ((e.Restriction)(<Substitute ((assign t.par ((call t.FunName (args (arg <Substitute (e.ChAssignments)<AddBracketsToVariableList e.CallPars>>))))))e.Conf>))
                 (Children e.Ch2)
             )
         >;
-/* 9. Дочерний узел-назначение есть константное выражение - подставляем его. */
-    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.ChildNode e.Ch2,
-    <GetNodeStack t.ChildNode> : ((assign t.stackvar (e.Val))),
-    <IfGround e.Val> : 'T',
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    e.LetAssignments : (t.ChildNodeName (assign t.par t.someval)) e.Asg2
+/* 5. Дочерний узел-назначение есть константное выражение - подставляем его. */
+    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.ChildNode e.Ch2
+    , <GetNodeStack t.ChildNode> : ((assign t.stackvar (e.Val)))
+    , <IfGround e.Val> : 'T'
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , e.LetAssignments : (t.ChildNodeName (assign t.par t.someval)) e.Asg2
         =
         <LetNodesMerging 
             (e.Calls)
@@ -761,12 +788,12 @@ LetNodesMerging {
     >; 
 */
 
-/* 10. Все потомки преобразованы к выражениям и подставлены. */
+/* 6. Все потомки преобразованы к выражениям и подставлены. */
     (e.Calls)(Node (Let ) t.NodeName ((e.Restriction)(e.Conf))(Children )) 
         = (e.Calls)(Node Expression t.NodeName ((e.Restriction)(e.Conf)));
 
 /*
-    11. Имеется потомок, не принадлежащий ни к одному из перечисленных выше классов:
+    7. Имеется потомок, не принадлежащий ни к одному из перечисленных выше классов:
    не объектное выражение,
    не let-выражение,
    не преобразованное let-выражение,
@@ -775,14 +802,14 @@ LetNodesMerging {
    Объявляем его новым корнем функции. 
 */
 
-    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children)),
-    e.Children : t.ChildNode e.Ch2,
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    <GetNodeConfig t.ChildNode> : e.ParConfig,
-    <SetInsertByFlag 
-                    (t.ChildNodeName (Let <FreshIndex 'Let_Name'>) <GetArgs () e.ParConfig>) 
-                    (e.Calls)
-                > : (e.NewCalls)
+    (e.Calls)(Node (Let e.LetAssignments) t.NodeName ((e.Restriction)(e.Conf))(Children e.Children))
+    , e.Children : t.ChildNode e.Ch2
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , <GetNodeConfig t.ChildNode> : e.ParConfig
+    , <SetInsertByFlag 
+        (t.ChildNodeName (Let <FreshIndex 'Let_Name'>) <GetArgs () e.ParConfig>) 
+        (e.Calls)
+    > : (e.NewCalls)
         =
         <LetNodesMerging (e.NewCalls)
             <Putout 1 'New function is introduced: 't.ChildNodeName ' from node 't.ChildNode' with config 'e.ParConfig ' in list' e.NewCalls>
@@ -793,18 +820,19 @@ LetNodesMerging {
 
 /* Дан список сужений. Добавить его в сужения всех узлов-потомков данного. */
 LowerRestrictions {
-    (e.Restrictions)(e.Equations) = ;
+    (e.Restrictions)(e.Equations) = /* EMPTY */;
     (Always)() e.Nodes = e.Nodes;
-    (e.ParentRestr)(e.ParEquations) t.Node e.Nodes,
-        <GetNodeRestrictions t.Node> : e.CurRestr,
-        <GetNodeNewEqs t.Node> : e.CurEquations,
-        <ExtractActiveEquations <Substitute (e.CurRestr) e.ParEquations>> : (e.RenewedParentEqs)(e.OtherEqs),
-        <PutNodeNewEqs t.Node e.CurEquations e.RenewedParentEqs> : t.Node1,
-        <MergeRestrictions (e.CurRestr)e.ParentRestr> : e.NewRestrictions,
-        <PutNodeRestrictions t.Node1 e.NewRestrictions> : t.NewNode 
+    (e.ParentRestr)(e.ParEquations) t.Node e.Nodes
+    , <GetNodeRestrictions t.Node> : e.CurRestr
+    , <GetNodeNewEqs t.Node> : e.CurEquations
+    , <ExtractActiveEquations <Substitute (e.CurRestr) e.ParEquations>> : (e.RenewedParentEqs)(e.OtherEqs)
+    , <PutNodeNewEqs t.Node e.CurEquations e.RenewedParentEqs> : t.Node1
+    , <MergeRestrictions (e.CurRestr)e.ParentRestr> : e.NewRestrictions
+    , <PutNodeRestrictions t.Node1 e.NewRestrictions> : t.NewNode 
         = <Putout 1 'Node: '<GetNodeName t.Node>>
-            <Putout 1 'Changed from '(e.CurRestr)(e.CurEquations)' to '(e.NewRestrictions)(e.CurEquations e.RenewedParentEqs)> 
-            t.NewNode <LowerRestrictions (e.ParentRestr)(e.ParEquations) e.Nodes>;
+        <Putout 1 'Changed from '(e.CurRestr)(e.CurEquations)' to '(e.NewRestrictions)(e.CurEquations e.RenewedParentEqs)> 
+        t.NewNode 
+        <LowerRestrictions (e.ParentRestr)(e.ParEquations) e.Nodes>;
 }
 
 /* Даны два списка сужений. Объединить их. */
@@ -817,22 +845,36 @@ MergeRestrictions {
 
 /* Вспомогательная для предыдущей. */
 MergeRestrAux {
-    t.Restriction (e.Other) t.1 t.1, t.1 : (e.Prestrs) = t.Restriction <MergeRestrictions (e.Other) e.Prestrs>;
+    t.Restriction (e.Other) t.1 t.1
+    , t.1 : (e.Prestrs)
+        = t.Restriction <MergeRestrictions (e.Other) e.Prestrs>;
     t.Restriction (e.Other) (e.OldPrestrs) (e.NewPrestrs) = <MergeRestrictions (e.Other) e.NewPrestrs>;
 }
 
 /* Проталкиваем вниз подстановки из let-выражений. Но не в следующие let-выражения! */
 RestrictionsToEquations {
-	(e.LetAssignments) e.Nodes = e.Nodes;
-	(e.LetAssignments)(Node e.NodeData ((e.Restrictions)(e.Equations)e.OtherData)(Children e.ChildData)) e.OtherNodes =
-		<CheckSEqResult (e.LetAssignments)(Node e.NodeData ((e.Restrictions)(<GenerateNewEqs (e.LetAssignments)(e.Equations)(e.Restrictions)>) e.OtherData)
-			(Children  e.ChildData)
-		)>
-		<RestrictionsToEquations (e.LetAssignments) e.OtherNodes>;
-	(e.LetAssignments)(Node e.NodeData ((e.Restrictions)(e.Equations)e.OtherData)) e.OtherNodes =
-		<CheckSEqResult (e.LetAssignments)(Node e.NodeData ((e.Restrictions)(<GenerateNewEqs (e.LetAssignments)(e.Equations)(e.Restrictions)>) e.OtherData)
-		)>
-		<RestrictionsToEquations (e.LetAssignments) e.OtherNodes>;
+    (e.LetAssignments) e.Nodes = e.Nodes;
+    (e.LetAssignments)
+    (Node e.NodeData ((e.Restrictions)(e.Equations)e.OtherData)(Children e.ChildData)) 
+    e.OtherNodes
+        =
+        <CheckSEqResult 
+            (e.LetAssignments)
+            (Node 
+                e.NodeData 
+                ((e.Restrictions)(<GenerateNewEqs (e.LetAssignments)(e.Equations)(e.Restrictions)>) e.OtherData)
+                (Children  e.ChildData)
+        )>
+        <RestrictionsToEquations (e.LetAssignments) e.OtherNodes>;
+    (e.LetAssignments)(Node e.NodeData ((e.Restrictions)(e.Equations)e.OtherData)) e.OtherNodes
+        =
+        <CheckSEqResult 
+            (e.LetAssignments)
+            (Node 
+                e.NodeData 
+                ((e.Restrictions)(<GenerateNewEqs (e.LetAssignments)(e.Equations)(e.Restrictions)>) e.OtherData)
+        )>
+        <RestrictionsToEquations (e.LetAssignments) e.OtherNodes>;
 }
 
 /* Проверяем, не породила ли подстановка уравнений вниз противоречие. */
@@ -845,15 +887,14 @@ CheckSEqResult {
 	(e.LetAssignments)(Node t.OtherState e.NodeData (Children e.ChildData)) = 
 		(Node t.OtherState e.NodeData (Children <RestrictionsToEquations (e.LetAssignments)e.ChildData>)); 
 */
-
-	(e.LetAssignments)(Node e.Node) = (Node e.Node);
+    (e.LetAssignments)(Node e.Node) = (Node e.Node);
 }
 
 /* Эта функция вычленяет из списка уравнений вновь порожденные и те, в которые произошли подстановки. */
 FindNewEqs {
-	 = ;
-	(AreEqual ('T')(e.Val1)( e.Val2)) e.Other = (AreEqual ('T')(e.Val1)(e.Val2)) <FindNewEqs e.Other>;
-	t.Eq e.Other = <FindNewEqs e.Other>;
+    /* EMPTY */ = /* EMPTY */;
+    (AreEqual ('T')(e.Val1)( e.Val2)) e.Other = (AreEqual ('T')(e.Val1)(e.Val2)) <FindNewEqs e.Other>;
+    t.Eq e.Other = <FindNewEqs e.Other>;
 }
 
 /*
@@ -862,64 +903,73 @@ FindNewEqs {
 */
 
 GenerateNewEqs {
-	()(e.Equations)(e.Restrictions) = e.Equations;
-	((t.NName t.asgn) e.LetAssignments)(e.Equations)(e.Restrictions) = 
-		<GenerateNewEqs (e.LetAssignments)(<ExtractNewEqs t.asgn e.Restrictions><Substitute (t.asgn) e.Equations>)(e.Restrictions)>;
+    ()(e.Equations)(e.Restrictions) = e.Equations;
+    ((t.NName t.asgn) e.LetAssignments)(e.Equations)(e.Restrictions)
+        = <GenerateNewEqs 
+            (e.LetAssignments)
+            (<ExtractNewEqs t.asgn e.Restrictions><Substitute (t.asgn) e.Equations>)
+            (e.Restrictions)
+        >;
 }
 
 /* Вспомогательная для предыдущей. */
 ExtractNewEqs {
-	t.asgn = ;
-	(assign t.par (e.Val))(assign t.par (e.Val2)) e.Other = 
-		(AreEqual ('T')(e.Val)(e.Val2));
-	t.asgn t.asgn2 e.Other = <ExtractNewEqs t.asgn e.Other>;		
+    t.asgn = ;
+    (assign t.par (e.Val))(assign t.par (e.Val2)) e.Other
+        = (AreEqual ('T')(e.Val)(e.Val2));
+    t.asgn t.asgn2 e.Other = <ExtractNewEqs t.asgn e.Other>;		
 }
 
 /* Подстановка назначений в узлы. Только для let-узлов без потомков с рестрикциями и с let! */
 SubstituteInNodes {
-        (e.Subst)(Node Constant t.Name (()(e.Eq)(e.Val))) e.OtherNodes = 
-            (Node Constant t.Name (()(<Substitute (e.Subst)e.Eq>)(<Substitute (e.Subst)e.Val>)))
-            <SubstituteInNodes (e.Subst)e.OtherNodes>;
-        (e.Subst)(Node (Call t.Fname With e.Assignments)e.Other) e.OtherNodes = 
-            (Node (Call t.Fname With <Substitute (e.Subst)e.Assignments>)e.Other)<SubstituteInNodes (e.Subst)e.OtherNodes>;
-        (e.Subst) e.Z = e.Z;
+    (e.Subst)(Node Constant t.Name (()(e.Eq)(e.Val))) e.OtherNodes
+        = (Node Constant t.Name (()(<Substitute (e.Subst)e.Eq>)(<Substitute (e.Subst)e.Val>)))
+        <SubstituteInNodes (e.Subst)e.OtherNodes>;
+    (e.Subst)(Node (Call t.Fname With e.Assignments)e.Other) e.OtherNodes
+        = (Node (Call t.Fname With <Substitute (e.Subst)e.Assignments>)e.Other)<SubstituteInNodes (e.Subst)e.OtherNodes>;
+    (e.Subst) e.Z = e.Z;
 }
 
 /* Подстановка назначений в корневом узле в дочерние, содержащие данные без дальнейшей развертки. */
 SubstituteCallsAndConsts {
-	(Node (e.X Transfer To (e.Asg1 (assign t.par t.Val) e.Asg2) With e.Params) e.OtherData (Children e.Ch1 (Node Constant t.ChildNodeName (()t.Val))e.Ch2))
-		= <SubstituteCallsAndConsts
-			(Node (Transfer To (e.Asg1 (assign t.par t.Val) e.Asg2) With e.Params) e.OtherData
-			(Children <FlatSubstInNodesWORestrs ((assign t.par t.Val)) >))
-		>;
-        e.Z = e.Z;
+    (Node 
+        (e.X Transfer To (e.Asg1 (assign t.par t.Val) e.Asg2) With e.Params) 
+        e.OtherData 
+        (Children e.Ch1 (Node Constant t.ChildNodeName (()t.Val))e.Ch2)
+    )
+        = <SubstituteCallsAndConsts
+            (Node (Transfer To (e.Asg1 (assign t.par t.Val) e.Asg2) With e.Params) e.OtherData
+            (Children <FlatSubstInNodesWORestrs ((assign t.par t.Val)) >))
+        >;
+    e.Z = e.Z;
 }
 
 /* Подстановка в один уровень узлов, не содержащих рестрикций. */
 FlatSubstInNodesWORestrs {
-	(e.Assignments) = ;
+    (e.Assignments) = /* EMPTY */;
 /* let-узел ---*/
-	(e.Assignments)(Node (e.X Transfer To (e.CurrAsg) With e.Params) e.OtherData)e.OtherNodes
-            = (Node (Transfer To (<IterateSubstitute (e.Assignments)e.CurrAsg>) With e.Params) e.OtherData)
-            <FlatSubstInNodesWORestrs (e.Assignments)e.OtherNodes>;
-	(e.Assignments)(Node (Call t.FunName With e.CallPars) e.OtherData)e.OtherNodes
-            = (Node (Call t.FunName With <IterateSubstitute (e.Assignments)e.CallPars>) e.OtherData)
-            <FlatSubstInNodesWORestrs (e.Assignments)e.OtherNodes>;
-	(e.Assignments)(Node Constant (()(e.Val))) e.OtherNodes
-            = (Node Constant (()(<IterateSubstitute (e.Assignments)e.Val>)))
-            <FlatSubstInNodesWORestrs (e.Assignments)e.OtherNodes>;
+    (e.Assignments)(Node (e.X Transfer To (e.CurrAsg) With e.Params) e.OtherData)e.OtherNodes
+        = (Node (Transfer To (<IterateSubstitute (e.Assignments)e.CurrAsg>) With e.Params) e.OtherData)
+        <FlatSubstInNodesWORestrs (e.Assignments)e.OtherNodes>;
+    (e.Assignments)(Node (Call t.FunName With e.CallPars) e.OtherData)e.OtherNodes
+        = (Node (Call t.FunName With <IterateSubstitute (e.Assignments)e.CallPars>) e.OtherData)
+        <FlatSubstInNodesWORestrs (e.Assignments)e.OtherNodes>;
+    (e.Assignments)(Node Constant (()(e.Val))) e.OtherNodes
+        = (Node Constant (()(<IterateSubstitute (e.Assignments)e.Val>)))
+        <FlatSubstInNodesWORestrs (e.Assignments)e.OtherNodes>;
 }
 
 /* Дан список узлов, подготовленных к извлечению из них определений. Породить из них определения функций. */
 FinalizeProgram {
     t.Node e.Other (e.Calls)
-        = <DeleteEqPatts <AsgnVarNamesInFuns <GenerateFunction (e.Calls) t.Node>>><FinalizeProgram e.Other(e.Calls)>;
-    (e.Calls) = ;
+        = <DeleteEqPatts <AsgnVarNamesInFuns <GenerateFunction (e.Calls) t.Node>>>
+        <FinalizeProgram e.Other(e.Calls)>;
+    (e.Calls) = /* EMPTY */;
 }
 
 /* Из определения функции удалить правила с повторными образцами (удаляется то, что снизу). */
 DeleteEqPatts {
-    = ;
+    /* EMPTY */ = /* EMPTY */;
     (t.FunStatus t.FunName e.Patts1 (t.LHS'='t.RHS1) e.Patts2 (t.LHS'='t.RHS2) e.Patts3) e.other
         = <DeleteEqPatts (t.FunStatus t.FunName e.Patts1 (t.LHS'='t.RHS1) e.Patts2 e.Patts3) e.other>;
     t.Def e.other = t.Def <DeleteEqPatts e.other>;
@@ -930,44 +980,44 @@ ProcessNodesRestrictions {
     (e.Fun) = (e.Fun);
     (e.Fun)
     (Node Finished t.NodeName (e.Config)(Children e.Children))
-    e.Siblings,
-    e.Fun : e.F1 (t.NodeName e.OtherFunData) e.F2,
-    <ProcessNodesRestrictions (e.Fun) e.Children> : e.NewChildren (e.NewFun)
+    e.Siblings
+    , e.Fun : e.F1 (t.NodeName e.OtherFunData) e.F2
+    , <ProcessNodesRestrictions (e.Fun) e.Children> : e.NewChildren (e.NewFun)
         = (Node Finished t.NodeName (e.Config)(Children e.NewChildren))
             <ProcessNodesRestrictions (e.NewFun)e.Siblings>;
             
-    (e.Fun) t.Node e.Siblings,
-    <GetNodeName t.Node> : t.NodeName,
-    <GetNodeChildren t.Node> : t.ChildNode,
-    <GetNodeRestrictions t.Node> : e.Restrictions,
-    <GetNodeNewEqs t.Node> : e.Equations,
-    <GetNodeRestrictions t.ChildNode> : Always,
-    <GetNodeLets t.ChildNode> : (Let e.LetAssignments In e.Outer),
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    <PutNodeName t.ChildNode t.NodeName> : t.NewNode1,
-    <PutNodeLets t.NewNode1 (Let <RenameLetAsgns (t.ChildNodeName t.NodeName) e.LetAssignments> In e.Outer)> : t.NewNode2,
-    <PutNodeRestrictions t.NewNode2 e.Restrictions> : t.NewNode3,
-    <PutNodeNewEqs t.NewNode3 e.Equations> : t.NewNode4,
-    <RenameSuccNodes (t.ChildNodeName t.NodeName)<GetNodeChildren t.NewNode4>> : e.Children
+    (e.Fun) t.Node e.Siblings
+    , <GetNodeName t.Node> : t.NodeName
+    , <GetNodeChildren t.Node> : t.ChildNode
+    , <GetNodeRestrictions t.Node> : e.Restrictions
+    , <GetNodeNewEqs t.Node> : e.Equations
+    , <GetNodeRestrictions t.ChildNode> : Always
+    , <GetNodeLets t.ChildNode> : (Let e.LetAssignments In e.Outer)
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , <PutNodeName t.ChildNode t.NodeName> : t.NewNode1
+    , <PutNodeLets t.NewNode1 (Let <RenameLetAsgns (t.ChildNodeName t.NodeName) e.LetAssignments> In e.Outer)> : t.NewNode2
+    , <PutNodeRestrictions t.NewNode2 e.Restrictions> : t.NewNode3
+    , <PutNodeNewEqs t.NewNode3 e.Equations> : t.NewNode4
+    , <RenameSuccNodes (t.ChildNodeName t.NodeName)<GetNodeChildren t.NewNode4>> : e.Children
         =
         <Putout 1 'Renamed :'t.ChildNodeName ' to 't.NodeName>
         <ProcessNodesRestrictions (<RenameNodesInFun (t.ChildNodeName t.NodeName) e.Fun>)
             <PutNodeChildren t.NewNode4 e.Children> 
                 e.Siblings
         >;
-    (e.Fun)t.Node e.Siblings,
-    <GetNodeName t.Node> : t.NodeName,
-    <GetNodeChildren t.Node> : t.ChildNode,
-    <GetNodeRestrictions t.Node> : e.Restrictions,
-    <GetNodeNewEqs t.Node> : e.Equations,
-    <GetNodeRestrictions t.ChildNode> : Always,
-    <GetNodeName t.ChildNode> : t.ChildNodeName,
-    <GetNodeLets t.Node> : e.Lets,
-    <PutNodeName t.ChildNode t.NodeName> : t.NewNode1,
-    <PutNodeRestrictions t.NewNode1 e.Restrictions> : t.NewNode2,
-    <PutNodeLets t.NewNode2 e.Lets> : t.NewNode3,
-    <PutNodeNewEqs t.NewNode3 e.Equations> : t.NewNode4,
-    <RenameSuccNodes (t.ChildNodeName t.NodeName)<GetNodeChildren t.NewNode4>> : e.Children
+    (e.Fun)t.Node e.Siblings
+    , <GetNodeName t.Node> : t.NodeName
+    , <GetNodeChildren t.Node> : t.ChildNode
+    , <GetNodeRestrictions t.Node> : e.Restrictions
+    , <GetNodeNewEqs t.Node> : e.Equations
+    , <GetNodeRestrictions t.ChildNode> : Always
+    , <GetNodeName t.ChildNode> : t.ChildNodeName
+    , <GetNodeLets t.Node> : e.Lets
+    , <PutNodeName t.ChildNode t.NodeName> : t.NewNode1
+    , <PutNodeRestrictions t.NewNode1 e.Restrictions> : t.NewNode2
+    , <PutNodeLets t.NewNode2 e.Lets> : t.NewNode3
+    , <PutNodeNewEqs t.NewNode3 e.Equations> : t.NewNode4
+    , <RenameSuccNodes (t.ChildNodeName t.NodeName)<GetNodeChildren t.NewNode4>> : e.Children
         =
         <Putout 1 'Renamed :'t.ChildNodeName ' to 't.NodeName>
         <ProcessNodesRestrictions (<RenameNodesInFun (t.ChildNodeName t.NodeName) e.Fun>)
@@ -989,14 +1039,14 @@ ProcessNodesRestrictions {
         >; 
 */
 
-    (e.Fun) t.Node e.Siblings,
-    <GetNodeChildren t.Node> :
+    (e.Fun) t.Node e.Siblings
+    , <GetNodeChildren t.Node> :
         = 
         t.Node
         <ProcessNodesRestrictions (e.Fun)e.Siblings>;
-    (e.Fun)t.Node e.Siblings,
-    <GetNodeChildren t.Node> : e.Nodes,
-    <ProcessNodesRestrictions (e.Fun)e.Nodes> : e.NewChildren (e.NewFun) 
+    (e.Fun)t.Node e.Siblings
+    , <GetNodeChildren t.Node> : e.Nodes
+    , <ProcessNodesRestrictions (e.Fun)e.Nodes> : e.NewChildren (e.NewFun) 
         = 
         <PutNodeChildren t.Node e.NewChildren>
         <ProcessNodesRestrictions (e.NewFun)e.Siblings>;
@@ -1004,36 +1054,37 @@ ProcessNodesRestrictions {
 
 /* Переименование всех потомков данного узла. */
 RenameSuccNodes {
-    (t.OldAncestor t.NewAncestor) (Children e.Nodes) = (Children <RenameSuccNodes (t.OldAncestor t.NewAncestor) e.Nodes>);
-    (t.OldAncestor t.NewAncestor) = ;
-   ((e.OldAncestor) (e.NewAncestor)) t.Node e.Siblings,
-    <GetNodeName t.Node> : (e.OldAncestor e.Own),
-    <GetNodeChildren t.Node> : e.Children,
-    <PutNodeName t.Node (e.NewAncestor e.Own)> : t.Node1,
-    <GetNodeLets t.Node> : (Let e.LetAsgns In (e.ChConf)),
-    <PutNodeLets t.Node1 (Let <RenameLetAsgns ((e.OldAncestor) (e.NewAncestor)) e.LetAsgns> In (e.ChConf))> : t.Node2,
-    <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Children> : e.NewChildren,
-    <PutNodeChildren t.Node2 e.NewChildren> : t.NewNode
+    (t.OldAncestor t.NewAncestor) (Children e.Nodes)
+        = (Children <RenameSuccNodes (t.OldAncestor t.NewAncestor) e.Nodes>);
+    (t.OldAncestor t.NewAncestor) = /* EMPTY */;
+   ((e.OldAncestor) (e.NewAncestor)) t.Node e.Siblings
+   , <GetNodeName t.Node> : (e.OldAncestor e.Own)
+   , <GetNodeChildren t.Node> : e.Children
+   , <PutNodeName t.Node (e.NewAncestor e.Own)> : t.Node1
+   , <GetNodeLets t.Node> : (Let e.LetAsgns In (e.ChConf))
+   , <PutNodeLets t.Node1 (Let <RenameLetAsgns ((e.OldAncestor) (e.NewAncestor)) e.LetAsgns> In (e.ChConf))> : t.Node2
+   , <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Children> : e.NewChildren
+   , <PutNodeChildren t.Node2 e.NewChildren> : t.NewNode
         =
         t.NewNode <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Siblings>;
    
-   ((e.OldAncestor) (e.NewAncestor)) t.Node e.Siblings,
-   <GetNodeStatus t.Node> : (Looped To (e.OldAncestor e.Loop) e.Other),
-   <GetNodeName t.Node> : (e.OldAncestor e.Own),
-   <GetNodeChildren t.Node> : e.Children,
-   <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Children> : e.NewChildren,
-   <PutNodeStatus t.Node (Looped To (e.NewAncestor e.Loop) e.Other)> : t.Node1,
-   <PutNodeName t.Node1 (e.NewAncestor e.Own)> : t.Node2,
-   <PutNodeChildren t.Node2 e.NewChildren> : t.NewNode
+   ((e.OldAncestor) (e.NewAncestor)) t.Node e.Siblings
+   , <GetNodeStatus t.Node> : (Looped To (e.OldAncestor e.Loop) e.Other)
+   , <GetNodeName t.Node> : (e.OldAncestor e.Own)
+   , <GetNodeChildren t.Node> : e.Children
+   , <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Children> : e.NewChildren
+   , <PutNodeStatus t.Node (Looped To (e.NewAncestor e.Loop) e.Other)> : t.Node1
+   , <PutNodeName t.Node1 (e.NewAncestor e.Own)> : t.Node2
+   , <PutNodeChildren t.Node2 e.NewChildren> : t.NewNode
         =
         t.NewNode
         <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Siblings>;
-    ((e.OldAncestor) (e.NewAncestor))t.Node e.Siblings,
-    <GetNodeName t.Node> : (e.OldAncestor e.Own),
-    <GetNodeChildren t.Node> : e.Children,
-    <PutNodeName t.Node (e.NewAncestor e.Own)> : t.Node1,
-    <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Children> : e.NewChildren,
-    <PutNodeChildren t.Node1 e.NewChildren> : t.NewNode
+    ((e.OldAncestor) (e.NewAncestor))t.Node e.Siblings
+    , <GetNodeName t.Node> : (e.OldAncestor e.Own)
+    , <GetNodeChildren t.Node> : e.Children
+    , <PutNodeName t.Node (e.NewAncestor e.Own)> : t.Node1
+    , <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Children> : e.NewChildren
+    , <PutNodeChildren t.Node1 e.NewChildren> : t.NewNode
         =
         t.NewNode
         <RenameSuccNodes ((e.OldAncestor) (e.NewAncestor)) e.Siblings>;
@@ -1041,7 +1092,7 @@ RenameSuccNodes {
 
 /* Переименование узлов в let-выражениях. */
 RenameLetAsgns {
-    ((e.OldAncestor) (e.NewAncestor)) = ;
+    ((e.OldAncestor) (e.NewAncestor)) = /* EMPTY */;
     ((e.OldAncestor) (e.NewAncestor))((e.OldAncestor e.Own) e.pardata) e.other 
         = ((e.NewAncestor e.Own) e.pardata) <RenameLetAsgns ((e.OldAncestor) (e.NewAncestor)) e.other>;
 }
@@ -1052,11 +1103,11 @@ RenameNodesInFun {
        = ((e.NewAncestor e.Own) e.Data) <RenameNodesInFun ((e.OldAncestor) (e.NewAncestor))  e.2>;
    ((e.OldAncestor) (e.NewAncestor)) t.other e.2 
        = t.other <RenameNodesInFun ((e.OldAncestor) (e.NewAncestor))  e.2>;
-    (e.Renaming) = ;
+    (e.Renaming) = /* EMPTY */;
 }
 
 /* Для трассировщика. */
-AAA { = };
+AAA { e.1 = ; }
 
 /*****************************/
 /* Заглушка для порождения блоков. */

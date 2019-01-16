@@ -1,0 +1,64 @@
+/*
+ The function DelAB deletes the substring 'AB' from its second argument exhaustively.
+ It is more efficient than the naive exhaustive deletion, because it is always local.
+
+ The supercompiler proves that the resulting string can never contain 'AB'.
+*/
+
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+   e.p = <Check <DelAB ( )e.p>>;
+}
+
+DelAB {
+    ( )'AB' e.x2 = <DelAB ( )e.x2>;
+    (e.x1 t.y1)'AB' e.x2 = <DelAB (e.x1)t.y1 e.x2>;
+    (e.x1)e.z t.y1 'AB' e.x2 = <DelAB (e.x1 e.z)t.y1 e.x2>;
+    (e.x1) e.x2 = e.x1 e.x2;
+}
+
+Check {
+    e.x1 'AB'e.x2 = 'F';
+    e.Z = 'T';
+}
+
+
+/*********************************************************************************/
+/*                     the residual program                                      */
+/*********************************************************************************/
+
+/*
+$ENTRY Go {
+ e.x1 =  <Check_0 e.x1>;
+}
+
+
+Check_0 {
+ 'AB' e.x1 =  <Check_0 e.x1>;
+ e.x1 t.y1 'AB' e.x2 =  <Check_1 (e.x1) t.y1 (e.x2)>;
+ e.x1 =  'T';
+}
+
+
+Check_1 {
+ () 'A' ('B' e.x1) =  <Check_0 e.x1>;
+ (e.x1 t.y1) 'A' ('B' e.x2) =  <Check_1 (e.x1) t.y1 (e.x2)>;
+ (e.x1) t.y1 ('AB' e.x2) =  <Check_1 (e.x1) t.y1 (e.x2)>;
+ (e.x1) t.y1 (e.x2 t.y2 'AB' e.x3) =  <Check_2 (e.x1) t.y1 (e.x2) t.y2 (e.x3)>;
+ (e.x1) t.y1 (e.x2) =  'T';
+}
+
+
+Check_2 {
+ (e.x1) t.y1 (e.x2 t.y2) 'A' ('B' e.x3) =  <Check_2 (e.x1) t.y1 (e.x2) t.y2 (e.x3)>;
+ (e.x1) t.y1 () 'A' ('B' e.x2) =  <Check_1 (e.x1) t.y1 (e.x2)>;
+ (e.x1) t.y1 (e.x2) t.y2 ('AB' e.x3) =  <Check_2 (e.x1) t.y1 (e.x2) t.y2 (e.x3)>;
+ (e.x1) t.y1 (e.x2) t.y2 (e.x3 t.y3 'AB' e.x4) =  <Check_2 (e.x1) t.y1 (e.x2 t.y2 e.x3) t.y3 (e.x4)>;
+ (e.x1) t.y1 (e.x2) t.y2 (e.x3) =  'T';
+}
+
+*/

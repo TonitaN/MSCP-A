@@ -1,0 +1,44 @@
+/*
+  Given an arbitrary word e.Word in the language {'A','B'}, we apply the Fibonacci transformation to it, e.g.
+  'A' -> 'BA'
+  'B' -> 'A'
+  Can the result contain the substring 'BB'?
+
+  Double supercompilation of the input program results in a program with no False branches.
+*/
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+$ENTRY Go {
+  e.Word =  <NextFibWord ( ) e.Word>;
+}
+
+NextFibWord {
+    (e.Fib) = True;
+    (e.Fib)'A'e.ToProcess = <TestBB (e.Fib'BA')e.ToProcess>;
+    (e.Fib)'B'e.ToProcess = <TestBB (e.Fib'A')e.ToProcess>;
+}
+
+TestBB {
+   (e.Prefix 'BB' s.LastLetter) e.Suffix = False;
+   (e.Prefix 'BB')e.Suffix = False;
+   (e.Prefix)e.Suffix = <NextFibWord (e.Prefix)e.Suffix>;
+}
+
+/***********************************************/
+/*          the residual program               */
+/***********************************************/
+
+/*
+$ENTRY Go {
+ e.x1 =  <NextFibWord_123_0_135_0 () (e.x1)>;
+}
+
+
+NextFibWord_123_0_135_0 {
+ (e.x1) () =  True;
+ (e.x1) ('A' e.x2) =  <NextFibWord_123_0_135_0 (e.x1 'BA') (e.x2)>;
+ (e.x1) ('B' e.x2) =  <NextFibWord_123_0_135_0 (e.x1 'A') (e.x2)>;
+}
+*/

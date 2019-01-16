@@ -1,0 +1,53 @@
+
+/*
+ The function Delscript does a correct sanitization procedure which deletes the substring 'script' from the page code
+ exhastively. However, Delscript is inefficient: during every iteration, it tries to find and delete the substring from
+ the whole page code, even from the parts where 'script' can never appear.
+
+ The residual program does not contain functions returning 'F', 
+ hence the sanitization is proven to be correct in respect to the given condition.  
+*/
+
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+   e.p = <Check <Delscript e.p>>;
+}
+
+Delscript {
+    e.x1 'script' e.x2 = <Delscript e.x1 e.x2>;
+    e.Other = e.Other;
+}
+
+Check {
+    = 'T';
+    '<script'e.x = 'F';
+    t.y e.Z = <Check e.Z>;
+}
+
+/***********************************************/
+/*          the residual program               */
+/***********************************************/
+
+/*
+
+$ENTRY Go {
+ e.x1 =  <Check_0 e.x1>;
+}
+
+
+Check_0 {
+ e.x1 'script' e.x2 =  <Check_0 e.x1 e.x2>;
+ e.x1 =  <Check_13_0 e.x1>;
+}
+
+
+Check_13_0 {
+ =  'T';
+ t.y1 e.x1 =  <Check_13_0 e.x1>;
+}
+
+*/

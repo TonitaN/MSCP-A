@@ -1,45 +1,42 @@
 /*
- В строке буквы 'A' заменяются на 'B', затем 'B' на 'С'.
- Простейший тест на прогонку.
+  The simplest test transforming two loops in a one with the elementary negative restrictions.
+  The input parameter may be a string in any alphabet.
 */
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 $ENTRY Go {
-	 e.x = <G <F e.x>>;
+	 e.InitialString = <G <F e.InitialString>>;
 }
 
 F {
 	            = ;
-	'A' e.1     = 'B'<F e.1>;	
-	s.Other e.1 = s.Other <F e.1>;
+	'A' e.String = 'B'<F e.String>;	
+	s.NotA e.String = s.NotA <F e.String>;
 }
 
 G {
 	            = ;
-	'B' e.1     = 'C'<G e.1>;
-	s.Other e.1 = s.Other <G e.1>;
+	'B' e.String  = 'C'<G e.String>;
+	s.NotB e.String = s.NotB <G e.String>;
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 
 /*
 $ENTRY Go {
- e.1 =  <G_0 () (e.1)>;
+ e.x1 =  <G_0 () (e.x1)>;
 }
 
 
 G_0 {
- (e.1) () =  e.1;
- (e.1) ('A' e.2) =  <G_0 (e.1 'C') (e.2)>;
- (e.1) ('B' e.2) =  <G_0 (e.1 'C') (e.2)>;
- (e.1) (s.1 e.2) =  <G_0 (e.1 s.1) (e.2)>;
+ (e.x1) () =  e.x1;
+ (e.x1) ('A' e.x2) =  <G_0 (e.x1 'C') (e.x2)>;
+ (e.x1) ('B' e.x2) =  <G_0 (e.x1 'C') (e.x2)>;
+ (e.x1) (s.z1 e.x2) =  <G_0 (e.x1 s.z1) (e.x2)>;
 }
 */
 
-/*
- Произошло слияние двух циклов в один.
-*/

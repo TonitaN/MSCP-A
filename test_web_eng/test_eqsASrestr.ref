@@ -1,17 +1,17 @@
-/* 
- Дан параметр, удовлетворяющий уравнению x'A'='A'x. 
- Доказать, что все его суффиксы состоят из одной и той же буквы.
- Условие истинности уравнения попало в образец функции InputFormat_0,
- поскольку без него отождествление результата G с функцией F невозможно.
+/*
+  
+ Given a string parameter satisfying the equality e.x++'A'='A'++e.x, a supercompiler is to prove that all
+ its suffixes are q^N for some letter q. 
+ In the residual program, the initial equation is placed as a condition in the pattern of the function InputFormat_0.
 */
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 
 
 $ENTRY Go {
-     e.x = <F <G ('A'e.x)(e.x 'A')>>;
+     e.x = <F <Equal ('A'e.x)(e.x 'A')>>;
 }
 
 
@@ -23,30 +23,30 @@ F {
     ('B' e.1 'A') = 'F';
 }
 
-G {
-	t.1 t.1 = t.1;
-	(e.1) t.2 = ;
+Equal {
+	t.X t.X = t.X;
+	(e.X) t.Y = ; /* If the terms are not equal, return the empty string, which results in the recognition impossible.*/
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 
 /*
 $ENTRY Go {
- e.1 =  <InputFormat_0 e.1>;
+ e.x1 =  <InputFormat_0 e.x1>;
 }
 
 
 InputFormat_0 {
  =  'T';
- e.1 'A', ('A' e.1) (e.1 'A') : t.Eq1 t.Eq1 =  <F_23_0 e.1>;
+ e.x1 'A', ('A' e.x1) (e.x1 'A') : t.Eq1 t.Eq1 =  <F_23_0 e.x1>;
 }
 
 
 F_23_0 {
  =  'T';
- 'A' e.1 =  <F_23_0 e.1>;
+ 'A' e.x1 =  <F_23_0 e.x1>;
 }
 */
 

@@ -1,0 +1,51 @@
+/*
+ The function ReplaceAB deletes the substring 'AB' from its second argument exhaustively.
+ It is more efficient than the naive exhaustive deletion, because it loses locality only in the 'dangerous cases': if 'AB' is preceded by 'A'.
+
+ The supercompiler proves that the resulting string can never contain 'AB'.
+*/
+
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+   e.q = <Check <ReplaceAB ()e.q>>;
+}
+
+ReplaceAB {
+     ( )e.x'AAB'e.y = <ReplaceAB ()e.x'A'e.y>;
+     (e.z)e.x'AB'e.y =  <ReplaceAB (e.z e.x) e.y>;
+     (e.x)e.Other = e.x e.Other;
+}
+
+
+Check{
+    e.x1 'AB'e.x2 = 'F';
+     e.Z	  = 'T';
+}
+
+/*********************************************************************************/
+/*                     the residual program                                      */
+/*********************************************************************************/
+
+/*
+$ENTRY Go {
+ e.x1 =  <Check_0 e.x1>;
+}
+
+
+Check_0 {
+ e.x1 'AAB' e.x2 =  <Check_0 e.x1 'A' e.x2>;
+ e.x1 'AB' e.x2 =  <Check_1 (e.x1) (e.x2)>;
+ e.x1 =  'T';
+}
+
+
+Check_1 {
+ (e.x1) (e.x2 'AB' e.x3) =  <Check_1 (e.x1 e.x2) (e.x3)>;
+ (e.x1) (e.x2) =  'T';
+}
+
+*/

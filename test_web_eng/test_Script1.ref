@@ -1,17 +1,18 @@
 
 /*
- Тест некорректной процедуры аудита.
+ The test of the incorrect sanitization.
 
- Процедура аудита заменяет все вхождения в строку подстроки 'script' на пустое слово.
- Требуется проверить корректность данной процедуры аудита: а именно, что после нее в строке не будет подстроки '<script'.
- Функция ReplaceIp осуществляет указанную подстановку, функция Check проверяет условие корректности.
-  
- По остаточной программе можно восстановить случаи, когда аудит некорректен.
+ The sanitization deletes all the occurrences of the substring 'script' in the code. It is modeled by the function Delscript. 
+ A sanitization is said to be correct if the resulting code does not contain the substring '<script'. 
+ The correctness check is done by the fubction Check.
+
+ In the residual program, there are branches ending in 'F'. Tracking these branches, we can construct a counter-example refuting
+ correctness of the sanitization.
 */
 
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 
 $ENTRY Go {
@@ -19,49 +20,49 @@ $ENTRY Go {
 }
 
 Delscript {
-    e.1 'script' e.2 = e.1 <Delscript e.2>;
+    e.x1 'script' e.x2 = e.x1 <Delscript e.x2>;
     e.Other = e.Other;
 }
 
 Check {
     = 'T';
-    '<script'e.2 = 'F';
-    t.1 e.Z = <Check e.Z>;
+    '<script'e.x = 'F';
+    t.y e.Z = <Check e.Z>;
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 
 /*
 
 $ENTRY Go {
- e.1 =  <Check_0 () (e.1)>;
+ e.x1 =  <Check_0 () (e.x1)>;
 }
 
 
 Check_0 {
- (e.1) (e.2 'script' e.3) =  <Check_0 (e.1 e.2) (e.3)>;
- (e.1) (e.2) =  <Check_123_0 (e.1) (e.2)>;
+ (e.x1) (e.x2 'script' e.x3) =  <Check_0 (e.x1 e.x2) (e.x3)>;
+ (e.x1) (e.x2) =  <Check_123_0 (e.x1) (e.x2)>;
 }
 
 
 Check_123_0 {
  () () =  'T';
- ('<script' e.1) (e.2) =  'F';
- ('<scrip') ('t' e.1) =  'F';
- ('<scri') ('pt' e.1) =  'F';
- ('<scr') ('ipt' e.1) =  'F';
- ('<sc') ('ript' e.1) =  'F';
- ('<s') ('cript' e.1) =  'F';
- (t.1 e.1) (e.2) =  <Check_123_0 (e.1) (e.2)>;
- () (t.1 e.1) =  <Check_13_0 e.1>;
+ ('<script' e.x1) (e.x2) =  'F';
+ ('<scrip') ('t' e.x1) =  'F';
+ ('<scri') ('pt' e.x1) =  'F';
+ ('<scr') ('ipt' e.x1) =  'F';
+ ('<sc') ('ript' e.x1) =  'F';
+ ('<s') ('cript' e.x1) =  'F';
+ (t.y1 e.x1) (e.x2) =  <Check_123_0 (e.x1) (e.x2)>;
+ () (t.y1 e.x1) =  <Check_13_0 e.x1>;
 }
 
 
 Check_13_0 {
  =  'T';
- t.1 e.1 =  <Check_13_0 e.1>;
+ t.y1 e.x1 =  <Check_13_0 e.x1>;
 }
 
 */

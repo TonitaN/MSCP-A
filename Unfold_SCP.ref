@@ -1,7 +1,7 @@
 /****************************************************************************
    
             ГЛАВНЫЙ МОДУЛЬ MSCP-A
-            Содержит функцию, реализующую развертку и свертку графа конфигураций:
+            Содержит функцию, реализующую основной шаг суперкомпиляции:
             UnfoldMain
             Формат ее:
             (e.Program)[NodeX]([PathOfX])[FullTree]> ==> [FullTree]
@@ -10,11 +10,14 @@
 
 $EXTERN prefal, c-prefal;
 /* из модуля basics.ref */
-$EXTERN IfASubMultiSet, IfIncluded, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,SubtractEl,InsertInMultiSet,MergeSets,FindNode;
+$EXTERN IfASubMultiSet, IfIncluded, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,
+    SubtractEl,InsertInMultiSet,MergeSets,SetMinus,FindNode;
 /* из модуля basics.ref */
-$EXTERN GenPath,Collapse,SaveDriveMarker,Substitute, Map,DeleteMarkedEqs,GetParList;
+$EXTERN GenPath, DeleteNode, InsertNode, Collapse,SaveDriveMarker,Substitute, Map,
+    DeleteMarkedEqs,GetParList, SubstInversion;
 /* из модуля basics.ref */
-$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, RenewIndices, FreshIndex, CurrentIndex, MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
+$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, RenewIndices, FreshIndex, CurrentIndex, 
+    MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
 /* из модуля drive.ref */
 $EXTERN ClashLeft,GenerateNextLevel,PostProcessPRTC,FormatStack,AssignTimeStamps, Drive, CheckNarrowingsScreening;
 /* из модуля AnalyzeFunDef.ref */
@@ -22,16 +25,18 @@ $EXTERN AssignFunctionFeatures;
 /* из модуля stack.ref */
 $EXTERN YieldDecomposition;
 /* из модуля WordEquations.ref */
-$EXTERN PreserveIfImplied;
+$EXTERN IfEqIsImplied, ImplyNEqsNew,NormalizeInequalityBlock;
+/* из модуля WordEqsCases.ref */
+$EXTERN ProcessLinearInequality, ImplyNEqs;
 /* из модуля residual.ref */
 $EXTERN YieldProgramGeneration;
 /* из модуля generalize.ref */
-$EXTERN CheckNode4Generalization,CheckNode4Equivalence,HomeomorphicEmb; /* последняя для теста. */
+$EXTERN CheckNode4Generalization,CheckNode4Equivalence,NegativeCleaning, HomeomorphicEmb; /* последняя для теста. */
 /* из модуля accessMSCP.ref */
-$EXTERN GetNodeStatus, PutNodeStatus, GetNodeName, PutNodeName, GetNodeRestrictions, PutNodeRestrictions, GetNodeConfig, PutNodeConfig,
+$EXTERN AddNewLines, GetNodeStatus, PutNodeStatus, GetNodeName, PutNodeName, GetNodeRestrictions, PutNodeRestrictions, GetNodeConfig, PutNodeConfig,
     GetNodeStack, PutNodeStack, GetNodeEqs, PutNodeEqs, PutNodeNewEqs, GetNodeNewEqs, ReplaceNodeNewEqs,GetNodeLets, PutNodeLets, GetNodeChildren, PutNodeChildren,
     GenerateNewNode, GetNodeFullConfig, GetStackTop, DeleteNodeActiveData, GetNodeConfFromStack, PutNodeNewEqsToOld,
-    GenerateFreshPRTC, ReplacePRTCAllEqs, NullifyNodeEqs, ReplaceNodeGenEqs, GetNodeGenericEqs,
+    GenerateFreshPRTC, ReplacePRTCAllEqs, NullifyNodeEqs, ReplaceNodeGenEqs, GetNodeGenericEqs, ReplaceNodeNegEqs,
     FormatPRTCToPrint, FormatTreeToPrint,RenameStackTop, PutNodeNegEqs, GetNodeNegEqs, SubstituteInNegative;
 
 $ENTRY Go {
@@ -57,7 +62,7 @@ $ENTRY Go {
                (Comment '/* Elapsed time of embeddings is '<FormatOut <Dg 'emb_time'>>'.*/') 
                 (Comment '/* Elapsed time of generalizations is '<FormatOut <Dg 'mgu_time'>>'.*/') 
                 >
-            )
+            )<AAA>
             ('/verbose')
         >
         <Close 1><Close 2><Close 3>;
@@ -93,7 +98,7 @@ GetInputFile {
     , <SubdirSign> : e.2 
         = <GetInputFile (e.path e.1 e.2) e.3>;
 /* 1. Если файл имеет расширение ref, данного файла в папке запуска нет, и путь до него пуст, проверяем его наличие в подпапке test. */
-    ()e.1'.ref'
+    (/* EMPTY */)e.1'.ref'
     , <ExistFile e.1'.ref'> : False
     , <ExistFile 'tests'<SubdirSign>e.1'.ref'> : True 
         = ('tests'<SubdirSign>)'tests'<SubdirSign> e.1'.ref';
@@ -134,14 +139,16 @@ GetOutputFile {
    mgu_time - общее время, затраченное на обобщения;
    eqsolv_time - общее время, затраченное на решение уравнений в словах.
 */
-RenewAllIndices {
-    = <Map RenewIndices varl_ind time_stamp pare_ind part_ind pars_ind
-    wevalt_ind wevale_ind wevals_ind emb_time mgu_time eqsolv_time Subtree>
-    <Br 'Changes=F'>;
+$ENTRY RenewAllIndices {
+    = <Map RenewIndices 
+        varl_ind time_stamp pare_ind part_ind pars_ind
+        wevalt_ind wevale_ind wevals_ind emb_time mgu_time eqsolv_time Subtree prtc_ind
+    >
+    <Br 'Changes=F'><Br 'DriveType=C'>;
 }
 
 ProutByStrings {
-     = ;
+    /* EMPTY */ = /* EMPTY */;
     t.1 e.1 = <Prout t.1><Prout><ProutByStrings e.1>;
 }
 
@@ -149,7 +156,7 @@ ProutByStrings {
 
 /* Перевод предложений остаточной функции из промежуточного представления в представление prefal. */
 TransformIntoRefal {
-     = ;
+    /* EMPTY */ = /* EMPTY */;
     (Comment e.1) e.other = (Comment e.1)<TransformIntoRefal e.other>;
     ((ENTRY) t.FunctionName e.Definitions) e.other
         = ((ENTRY) (Go) <TransformDefinition e.Definitions>) <TransformIntoRefal e.other>;
@@ -163,7 +170,7 @@ TransformIntoRefal {
 
 /* Перевод промежуточного представления определения функции в представление prefal. */
 TransformDefinition {
-    /* EMPTY */ = ;
+    /* EMPTY */ = /* EMPTY */;
     ((e.Pars)'='(e.RightSide)) e.Other
         = ((<TransformExpressionToPrefal e.Pars>)'='(Expression <TransformExpressionToPrefal e.RightSide>))
         <TransformDefinition e.Other>;
@@ -171,7 +178,7 @@ TransformDefinition {
 
 /* Перевод выражения в представление prefal. */
 TransformExpressionToPrefal {
-    /* EMPTY */ = ; 
+    /* EMPTY */ = /* EMPTY */; 
     (Variable s.Sym t.name) e.other
     , <Type t.name>: 'N' 
         = (Variable <Explode s.Sym> <Implode <Symb t.name>>)<TransformExpressionToPrefal e.other>;
@@ -185,8 +192,11 @@ TransformExpressionToPrefal {
         {
         'W' e.1
             = (Word s.Sym)<TransformExpressionToPrefal e.other>;
+        'N' e.1
+            = (MacroDigit s.Sym)<TransformExpressionToPrefal e.other>;
         e.Z = s.Sym <TransformExpressionToPrefal e.other>;
         };
+    (MacroDigit e.1) e.2 = (MacroDigit e.1)<TransformExpressionToPrefal e.2>;
     (Bracket' 'e.1) e.2 = (Bracket <TransformExpressionToPrefal e.1>)<TransformExpressionToPrefal e.2>;
     (Call ((t.fname (e.Set)) s.number) e.arg) e.other 
         = (Call <Implode <Explode t.fname>'_'<SymbSet e.Set>'_'<Symb s.number>> <TransformExpressionToPrefal e.arg>)<TransformExpressionToPrefal e.other>;
@@ -196,7 +206,7 @@ TransformExpressionToPrefal {
 }
 
 SymbSet {
-    = ;
+    /* EMPTY */ = /* EMPTY */;
     s.Num1 e.Other = <Symb s.Num1><SymbSet e.Other>;
 }
 
@@ -207,53 +217,53 @@ SymbSet {
 */
 TransformEncoding {
 /* 1. Перекодировка завершена. Считаем, что входная точка лишь одна, и она помещается в вершину стека. */
-        (e.functions)(e.entrypoints) = (e.functions)(((assign (var l (0)) (e.entrypoints)) ));
+    (e.functions)(e.entrypoints) = (e.functions)(((assign (var l (0)) (e.entrypoints)) ));
 /* 2. Игнорируем информацию о внешних функциях. */
-	(e.functions)(e.entrypoints)(EXTERN e.ext) e.rest  = <TransformEncoding (e.functions)(e.entrypoints) e.rest>;
+    (e.functions)(e.entrypoints)(EXTERN e.ext) e.rest  = <TransformEncoding (e.functions)(e.entrypoints) e.rest>;
 /* 3. Игнорируем комментарии вне определений функций. */
-	(e.functions)(e.entrypoints)(Comment e.ext) e.rest = <TransformEncoding (e.functions)(e.entrypoints) e.rest>;
+    (e.functions)(e.entrypoints)(Comment e.ext) e.rest = <TransformEncoding (e.functions)(e.entrypoints) e.rest>;
 /* 4. Входную точку (единственную) запоминаем отдельно. */
-	(e.functions)(e.entrypoints)((ENTRY) t.fname e.CommentBefore ((e.lhs)'=' (Expression e.rhs))e.CommentAfter) e.rest
-        , <Br 'entrypoint='<ConvertExpr Entry e.lhs>> : e.1
-            = <TransformEncoding (e.functions)(e.entrypoints <ConvertExpr Entry e.rhs>) e.rest>;
+    (e.functions)(e.entrypoints)((ENTRY) t.fname e.CommentBefore ((e.lhs)'=' (Expression e.rhs))e.CommentAfter) e.rest
+    , <Br 'entrypoint='<ConvertExpr Entry e.lhs>> : e.1
+        = <TransformEncoding (e.functions)(e.entrypoints <ConvertExpr Entry e.rhs>) e.rest>;
 /* 5. Перекодировка определения функции. */
-	(e.functions)(e.entrypoints)((LOCAL) (e.fname) e.definition) e.rest
-            = <TransformEncoding (e.functions (e.fname (Sents <ConvertDef e.definition>)))(e.entrypoints) e.rest>;
+    (e.functions)(e.entrypoints)((LOCAL) (e.fname) e.definition) e.rest
+        = <TransformEncoding (e.functions (e.fname (Sents <ConvertDef e.definition>)))(e.entrypoints) e.rest>;
 
 }
 
 /* Функция перевода кодировки для предложений в определении функции из формата prefal во внутренний язык MSCP. */
 ConvertDef {
-	/* EMPTY */ = ;
+    /* EMPTY */ = /* EMPTY */;
 /* Комментарии в определениях функций удаляются. */
-	(Comment e.x) e.rest = <ConvertDef e.rest>;
+    (Comment e.x) e.rest = <ConvertDef e.rest>;
 /* Левые и правые части помещаются за одни скобки и каждая перекодируется. */
-	((e.lhs) '=' (Expression e.rhs)) e.rest = ((<ConvertExpr Regular e.lhs>) <ConvertExpr Regular e.rhs>) <ConvertDef e.rest>;
+    ((e.lhs) '=' (Expression e.rhs)) e.rest = ((<ConvertExpr Regular e.lhs>) <ConvertExpr Regular e.rhs>) <ConvertDef e.rest>;
 }
 
 /* Функция перевода кодировки для выражения в определении функции из формата prefal во внутренний язык MSCP. */
 ConvertExpr {
-        s.Mode (Comment e.x) e.rest = <ConvertExpr s.Mode e.rest>;
-	s.Mode = ;
+    s.Mode (Comment e.x) e.rest = <ConvertExpr s.Mode e.rest>;
+    s.Mode = /* EMPTY */;
 /* 1. перекодировка констант в себя. */
-	s.Mode s.1 e.1 = s.1 <ConvertExpr s.Mode e.1>;
+    s.Mode s.1 e.1 = s.1 <ConvertExpr s.Mode e.1>;
 /* 2. слово перекодируется просто в себя. */
-	s.Mode (Word e.1) e.2 = e.1 <ConvertExpr s.Mode e.2>;
+    s.Mode (Word e.1) e.2 = <ConvertExpr s.Mode e.1> <ConvertExpr s.Mode e.2>;
 /* 3. перекодировка структурных скобок. */
-	s.Mode (Bracket e.1) e.2 = ('*'<ConvertExpr s.Mode e.1>) <ConvertExpr s.Mode e.2>;
+    s.Mode (Bracket e.1) e.2 = ('*'<ConvertExpr s.Mode e.1>) <ConvertExpr s.Mode e.2>;
 /* 4. перекодировка переменных разных типов. */
-	s.Mode (Variable t.type t.name) e.2
-        , s.Mode :
-            {Regular = (var <Implode t.type> t.name) <ConvertExpr s.Mode e.2>; 
-            Entry = (par <Implode t.type> t.name) <ConvertExpr s.Mode e.2>;
-            };
+    s.Mode (Variable t.type t.name) e.2
+    , s.Mode :
+        {Regular = (var <Implode t.type> t.name) <ConvertExpr s.Mode e.2>; 
+        Entry = (par <Implode t.type> t.name) <ConvertExpr s.Mode e.2>;
+        };
 /* 5. число перекодируется просто в себя. */
-	s.Mode (MacroDigit s.digit)  e.2 = s.digit <ConvertExpr s.Mode e.2>; 
+    s.Mode (MacroDigit s.digit)  e.2 = s.digit <ConvertExpr s.Mode e.2>; 
 /* 6. перекодировка вызова функции. */
-	s.Mode (Call s.fname e.arg) e.rest
-            = (call s.fname (args (arg <ConvertExpr s.Mode e.arg>))) <ConvertExpr s.Mode e.rest>; 
+    s.Mode (Call s.fname e.arg) e.rest
+        = (call s.fname (args (arg <ConvertExpr s.Mode e.arg>))) <ConvertExpr s.Mode e.rest>; 
 /* 7. в остальных случаях - сообщение об ошибке. */
-	e.z = <Prout 'The input language contains non-basic primitives.'> <Recogn_Impossible>;
+    e.z = <Prout 'The input language contains non-basic primitives.'> <Recogn_Impossible>;
 }
 
 
@@ -416,83 +426,121 @@ UnfoldMain {
                     >;
 */
 /* 9. Проверяем, является ли узел _после_ прогонки кандидатом на обобщение. */
-	t.Program t.Node (e.Path t.Last) t.Tree,
-        <GetNodeStatus t.Node> : ReadyForGenCheck,
-        <GetNodeName t.Node> : t.Name,
-        <GetNodeConfig t.Node> : e.FullConf,
-        <GetNodeStack t.Node> : e.Stack,
-        e.Stack : ((assign t.var ((call t.funname e.Arg)))e.ThisLevel) e.OtherLevels,
-        <GetFunRecursionType t.funname t.Program> : s.Flag,
-        <PutNodeStatus t.Node <CheckNode4Generalization t.Name s.Flag (e.FullConf)(e.Stack)(e.Path)t.Tree>> : t.ProcessedNode
-		= <UnfoldMain t.Program 
-                        t.ProcessedNode
-                    (e.Path t.Last) t.Tree
-                    >;
-/* 10а. Узел обобщается --- вариант обобщения снизу (верхняя конфигурация есть MGU для нижней с точностью до переименовки). */
-	t.Program t.Node (e.Path t.Last) t.Tree,
-        <GetNodeStatus t.Node> : 
+    t.Program t.Node (e.Path t.Last) t.Tree
+    , <GetNodeStatus t.Node> : ReadyForGenCheck
+    , <GetNodeName t.Node> : t.Name
+    , <GetNodeConfig t.Node> : e.FullConf
+    , <GetNodeEqs t.Node> : e.Eqs
+    , <GetNodeStack t.Node> : e.Stack
+    , e.Stack : ((assign t.var ((call t.funname e.Arg)))e.ThisLevel) e.OtherLevels
+    , <GetFunRecursionType t.funname t.Program> : s.Flag
+    , <PutNodeStatus t.Node <CheckNode4Generalization t.Name s.Flag (e.Eqs)(e.FullConf)(e.Stack)(e.Path)t.Tree>> : t.ProcessedNode
+        = <UnfoldMain t.Program 
+            t.ProcessedNode
+            (e.Path t.Last) t.Tree
+        >;
+/* 10а. Узел обобщается --- вариант обобщения снизу (верхняя конфигурация есть MGU для нижней с точностью до переименовки).
+   Здесь может быть как просто вложение, так и обобщение по рестрикциям (уравнения или неравенства). 
+*/
+    t.Program t.Node (e.Path t.Last) t.Tree
+    , <GetNodeStatus t.Node> : 
             (Generalized (e.NodeName) 
-                (Looped To t.AncestorName With e.Subs)(e.GenFullConf)(e.GenStack)(e.Assignments)(e.Children)),
-        <FindNode (<GenPath t.AncestorName>) t.Tree> : t.AncestorNode,
-        <GetNodeGenericEqs t.AncestorNode> : e.OldGenEqs,
-        <DeleteMarkedEqs ('S')<GetNodeNewEqs t.AncestorNode>> : e.OldNewEqs,
-        <Substitute (<Substitute (<CutLetData e.Assignments>)e.Subs>)e.OldGenEqs e.OldNewEqs> : e.EqsSubstituted,
-        <FindEqsIntersection 
-            (e.EqsSubstituted)
-            <GetNodeGenericEqs t.Node><GetNodeNewEqs t.Node>
-        > : e.CommonEqs,
-        <EquivalentEqSet (e.EqsSubstituted) e.CommonEqs> :
-        {'T',
-            <NullifyNodeEqs <DeleteNodeActiveData t.Node>> : t.DrivenNode,
-        <GetNodeConfFromStack <PutNodeStack
+                (Looped To t.AncestorName With e.Subs and (Generic e.GenGenEqs)(Negative e.NegGenEqs))(e.GenFullConf)(e.GenStack)(e.Assignments)(e.Children))
+    , <FindNode (<GenPath t.AncestorName>) t.Tree> : t.AncestorNode
+    , <GetNodeGenericEqs t.AncestorNode> : e.OldGenEqs
+    , <GetNodeNegEqs t.AncestorNode> : e.OldNegEqs
+    , <DeleteMarkedEqs ('S')<GetNodeNewEqs t.AncestorNode>> : e.OldNewEqs
+    , <Substitute (<Substitute (<CutLetData e.Assignments>)e.Subs>)e.OldGenEqs e.OldNewEqs> : e.EqsSubstituted
+    , <SubstituteInNegative (<Substitute (<CutLetData e.Assignments>)e.Subs>)e.OldNegEqs> : e.NEqsSubstituted
+    , <SubstituteInNegative (<CutLetData e.Assignments>) e.NegGenEqs> : e.ProcNegEqs
+    , <GetPreservedEqs 
+        (e.OldGenEqs e.OldNewEqs)(e.EqsSubstituted)
+        (e.GenGenEqs <GetNodeGenericEqs t.Node><GetNodeNewEqs t.Node>)
+    > : e.CommonEqs
+    , <ImplyNEqsNew 
+        (<GetNodeNegEqs t.Node> e.ProcNegEqs)
+        (<Zip (e.NEqsSubstituted)(e.OldNegEqs)>)
+    > : s.Log e.CommonNeqs0
+    , <SubstituteInNegative (<SubstInversion e.Subs>) e.CommonNeqs0> : e.CommonNeqs
+    , <Putout 2 '  Checking embedding:'>
+    <Putout 2 <AddNewLines <GetNodeNegEqs t.Node> e.ProcNegEqs>>
+    <Putout 2 <AddNewLines e.NEqsSubstituted>> : /* */
+    , <LogAnd <EquivalentEqSet (e.OldGenEqs e.OldNewEqs) e.CommonEqs> s.Log> :
+        {'T'
+        , <NullifyNodeEqs <DeleteNodeActiveData t.Node>> : t.DrivenNode
+        , <GetNodeConfFromStack <PutNodeStack
             <PutNodeStatus <GenerateNewNode (e.NodeName 0)> (Looped To t.AncestorName With e.Subs)>
-            e.GenStack>> : t.NewNode,
-        <PutNodeChildren <PutNodeStatus t.DrivenNode Driven> t.NewNode e.Children> : t.Node3,
-        <PutNodeLets t.Node3 (Let e.Assignments In (e.GenFullConf))> : t.ProcessedNode
-		= <Putout 1><Putout 1 'Equations are preserved:'><Putout 1 e.CommonEqs><Putout 1>
+            e.GenStack>> : t.NewNode
+        , <PutNodeChildren <PutNodeStatus t.DrivenNode Driven> t.NewNode e.Children> : t.Node3
+        , <PutNodeLets t.Node3 (Let e.Assignments In (e.GenFullConf))> : t.ProcessedNode
+		= <Putout 1><Putout 1 '  Equations are preserved:' <AddNewLines e.CommonEqs>>
+                  <Putout 2><Putout 2 '  Equations are preserved:' <AddNewLines e.CommonEqs>>
+                  <Putout 1><Putout 1 '  Inequalities are preserved:' <AddNewLines e.CommonNeqs>>
+                  <Putout 2><Putout 2 '  Inequalities are preserved:' <AddNewLines e.CommonNeqs>>
                     <UnfoldMain t.Program 
                     <PrintIfTracing t.ProcessedNode>
                     (e.Path t.Last) t.Tree
                 >;
-            'F',
-            <PutNodeChildren 
+        'F'
+        , <PutNodeChildren 
                 <ReplaceNodeNewEqs
                 <PutNodeStatus 
-                    <ReplaceNodeGenEqs t.AncestorNode e.CommonEqs> Undriven>
+                    <ReplaceNodeNegEqs 
+                        <ReplaceNodeGenEqs t.AncestorNode e.CommonEqs <Substitute (<SubstInversion e.Subs>)e.GenGenEqs>> 
+                        <NegativeCleaning e.CommonNeqs e.NegGenEqs>
+                    > 
+                Undriven>
                 <MarkAllEqs ('S')e.OldNewEqs>>
-                > : t.ProcessedAncNode
-                = <Putout 1><Putout 1 'Equations are cut:'>
-                    <Putout 1 e.EqsSubstituted>
-                    <Putout 1 <GetNodeGenericEqs t.Node><GetNodeNewEqs t.Node>>
-                    <Putout 1 'to'>
-                    <Putout 1 e.CommonEqs>
-                <UnfoldMain t.Program
-                    <PrintIfTracing t.ProcessedAncNode>
-                    (<GenPath t.AncestorName>) t.Tree
-		>;
+        > : t.ProcessedAncNode
+            = <Putout 1><Putout 1 '  Equations are cut:'<AddNewLines e.OldGenEqs e.OldNewEqs>>
+                <Putout 1 '   to' <AddNewLines e.CommonEqs e.GenGenEqs>>
+            <Putout 1><Putout 1 '  Inequalities are cut:'<AddNewLines e.OldNegEqs>>
+                <Putout 1 '  to'<AddNewLines e.CommonNeqs e.NegGenEqs>>
+            <Putout 2><Putout 2 '  Equations are cut:'<AddNewLines e.OldGenEqs e.OldNewEqs>>
+                <Putout 2 '  to'<AddNewLines e.CommonEqs e.GenGenEqs>>
+            <Putout 2><Putout 2 '  Inequalities are cut:'<AddNewLines e.OldNegEqs>>
+                <Putout 2 '  to'<AddNewLines e.CommonNeqs e.NegGenEqs>>
+            <UnfoldMain t.Program
+                <PrintIfTracing t.ProcessedAncNode>
+                (<GenPath t.AncestorName>) t.Tree
+            >;
         };
 /* 10б. Узел обобщается --- обобщение в конфигурации предка (все прежние потомки конфигурации предка удаляются). */
-	t.Program t.Node (e.Path t.Last) t.Tree, 
-        <GetNodeStatus t.Node> : (Generalized t.AncestorName (UpperGeneralization With (e.NewEquations))(e.GenFullConf)(e.GenStack)(e.Assignments)(e.Children)),
-        t.AncestorName : (e.AncestorList),
-        <FindNode (<GenPath t.AncestorName>) t.Tree> : t.AncestorNode0,
-        <FindGenerEqs (<GetParList ()e.GenFullConf>)(e.Assignments)<GetNodeNewEqs t.AncestorNode0><GetNodeGenericEqs t.AncestorNode0>> : e.GenerEqs,
-        <FindGenerNegative (<GetParList ()e.GenFullConf>)(e.Assignments)<GetNodeNegEqs t.AncestorNode0>> : e.GenerNegative,
-        <NullifyNodeEqs t.AncestorNode0> : t.AncN1,
-        <PutNodeLets t.AncN1 (Let e.Assignments In (e.GenFullConf))> : t.AncN2,
-        <DeleteNodeActiveData t.AncN2> : t.AncN3,
-        <PutNodeStatus t.AncN3 Driven> : t.AncN4,
-        <GenerateNewNode (e.AncestorList 0)> : t.NewNode0,
-        <PutNodeStatus t.NewNode0 Undriven> : t.NewNode1,
-        <PutNodeStack t.NewNode1 e.GenStack> : t.NewNode2,
-        <PutNodeConfig t.NewNode2 e.GenFullConf> : t.NewNode3,
-        <PutNodeNegEqs <PutNodeNewEqsToOld <PutNodeNewEqs t.NewNode3 e.NewEquations e.GenerEqs>> e.GenerNegative> : t.ProcessedNewNode,
-        <PutNodeChildren t.AncN4 t.ProcessedNewNode e.Children> : t.ProcessedAncNode
-        	=	
-		<UnfoldMain t.Program
-                    <PrintIfTracing t.ProcessedAncNode>
-                    (<GenPath t.AncestorName>) t.Tree
-		>;
+    t.Program t.Node (e.Path t.Last) t.Tree
+    , <GetNodeStatus t.Node> : (Generalized t.AncestorName (UpperGeneralization With ((Generic e.NewEquations)(Negative e.Negs)))(e.GenFullConf)(e.GenStack)(e.Assignments)(e.Children))
+    , t.AncestorName : (e.AncestorList)
+    , <FindNode (<GenPath t.AncestorName>) t.Tree> : t.AncestorNode0
+    , <FindGenerEqs 
+        (<GetParList ()e.GenFullConf>)
+        (e.Assignments)
+        <GetNodeNewEqs t.AncestorNode0><GetNodeGenericEqs t.AncestorNode0>
+    > : e.GenerEqs
+    , <FindGenerNegative 
+        (<GetParList ()e.GenFullConf>)
+        (e.Assignments)
+        <GetNodeNegEqs t.AncestorNode0>
+    > : e.GenerNegative
+    , <GetNegativeRestrictionsFromProgramRules t.Program e.GenFullConf> : e.RulesNegative
+    , <NullifyNodeEqs t.AncestorNode0> : t.AncN1
+    , <PutNodeLets t.AncN1 (Let e.Assignments In (e.GenFullConf))> : t.AncN2
+    , <DeleteNodeActiveData t.AncN2> : t.AncN3
+    , <PutNodeStatus t.AncN3 Driven> : t.AncN4
+    , <GenerateNewNode (e.AncestorList 0)> : t.NewNode0
+    , <PutNodeStatus t.NewNode0 Undriven> : t.NewNode1
+    , <PutNodeStack t.NewNode1 e.GenStack> : t.NewNode2
+    , <PutNodeConfig t.NewNode2 e.GenFullConf> : t.NewNode3
+    , <PutNodeNegEqs 
+        <PutNodeNewEqsToOld 
+            <PutNodeNewEqs t.NewNode3 e.NewEquations e.GenerEqs>
+        > 
+        <NegativeCleaning e.Negs e.RulesNegative e.GenerNegative>
+    > : t.ProcessedNewNode
+    , <PutNodeChildren t.AncN4 t.ProcessedNewNode e.Children> : t.ProcessedAncNode
+        =	
+        <UnfoldMain t.Program
+            <PrintIfTracing t.ProcessedAncNode>
+            (<GenPath t.AncestorName>) t.Tree
+        >;
 /* 11. Если узел не прогнан, запускаем прогонку. */
 /* На самом нижнем уровне самая левая переменная - вызов: производим прогонку для этого вызова. */
     t.Program t.Node (e.Path) t.Tree
@@ -518,7 +566,7 @@ UnfoldMain {
             t.fname (e.RuleSet)
         > 
         t.NewStatus
-    >: t.ProcessedNode
+    > : t.ProcessedNode
         = <UnfoldMain 
             t.Program 
             <PrintIfTracing t.ProcessedNode>
@@ -542,7 +590,7 @@ GetFunRecursionType {
 }
 
 MarkAllEqs {
-    (s.Log) = ;
+    (s.Log) = /* EMPTY */;
     (s.Log) (AreEqual (s.Log2)e.EqData) e.Rest
         = (AreEqual (s.Log)e.EqData)<MarkAllEqs (s.Log)e.Rest>;
 }
@@ -552,21 +600,77 @@ MarkAllEqs {
    ([Program])[FunctionName] => ([e.FirstPattern])([e.FirstRightHandSide])((([Pattern])[RightHandSide])^*)
 */
 FindFunctionDef {
-	(e.ProgramBefore (t.fname e.Features (Sents e.Defs)) e.ProgramAfter) (call ((t.fname (e.RSet)) t.timestamp) e.Args)
-		= <ExtractRuleSubset t.fname(e.Defs)>;
-	(e.ProgramBefore (t.fname e.Features (Sents e.Defs)) e.ProgramAfter) (call (t.fname t.timestamp) e.Args)
-		= <ExtractRuleSubset t.fname(e.Defs)>;
- /*
-         (EqualitySolving)(call (t.fname t.timestamp)(args (arg ('*'e.LHS)('*'e.RHS)))),
-                <GeneratePattern ('*' e.LHS)('*' e.RHS)> : ((e.PLHS)(e.PRHS)e.Other) = (e.PLHS)(e.PRHS)(e.Other);
-*/
+    (e.ProgramBefore (t.fname e.Features (Sents e.Defs)) e.ProgramAfter) (call ((t.fname (e.RSet)) t.timestamp) e.Args)
+        = <ExtractRuleSubset t.fname(e.Defs)>;
+    (e.ProgramBefore (t.fname e.Features (Sents e.Defs)) e.ProgramAfter) (call (t.fname t.timestamp) e.Args)
+        = <ExtractRuleSubset t.fname(e.Defs)>;
+}
+
+GetNegativeRestrictionsFromProgramRules {
+    t.Program e.Config
+    , <GetConfigCallsWithGaps e.Config> : e.Calls
+    , <GetFailedClashes t.Program e.Calls> : e.NegativeData
+         = <Putout 2 'Getting negative conditions from rules set:'>
+         <Putout 2 <AddNewLines e.Calls>>
+         <Putout 2 'produce conditions:'>
+         <Putout 2 <AddNewLines e.NegativeData>>
+            e.NegativeData;
+}
+
+GetFailedClashes {
+    t.Program (s.FunName (s.Number e.FailedRules)(e.Arg)) e.Calls
+    , <FindFunctionDef t.Program (call (s.FunName 0)(args (arg )))> : (s.PatternType)(e.LHS)(e.RHS)(e.Defs)
+    , <FilterLHS (s.Number e.FailedRules)(1)(((s.PatternType)(e.LHS)e.RHS)e.Defs)> : e.LHSSet
+    , <GetNegativeConditions (e.Arg)e.LHSSet> : e.NegativeConditions
+        = <NormalizeInequalityBlock ( )e.NegativeConditions><GetFailedClashes t.Program e.Calls>;
+    t.Program /* EMPTY */ = /* EMPTY */;
+}
+
+FilterLHS {
+    (e.Sequence)(s.Current)(((s.PatternType)(e.LHS)e.RHS)e.Other)
+    , e.Sequence
+    : {
+        e.Before s.Current e.Rest
+            = ((s.PatternType)e.LHS)<FilterLHS (e.Rest)(<Add s.Current 1>)(e.Other)>;
+        e.NotContainingCurrent
+            = <FilterLHS (e.Sequence)(<Add s.Current 1>)(e.Other)>;
+        };
+    (e.Sequence)(s.Current)(/* EMPTY */) = /* EMPTY */;
+}
+
+GetNegativeConditions {
+    (e.Expr)((s.Pattern)e.LHS)e.Other
+        = (OR (s.Pattern)((e.Expr) to (e.LHS))) <GetNegativeConditions (e.Expr)e.Other>;
+    (e.Expr) /* EMPTY */ = /* EMPTY */;
+}
+
+GetConfigCallsWithGaps {
+    e.1 ('*'e.2)e.3 = <GetConfigCallsWithGaps e.1 e.2 e.3>;
+    e.1 (call t.funname (args (arg e.Arg))) e.2
+    , t.funname : ((s.InitName t.Rules) t.TimeStamp)
+    , <SetMinus <GenNaturalSeq t.Rules> t.Rules>
+    : {
+        (t.SomeRuleNumber e.Other)
+            = (s.InitName (t.SomeRuleNumber e.Other) (e.Arg)) <GetConfigCallsWithGaps e.Arg e.2>;
+        (/* EMPTY */)
+            = <GetConfigCallsWithGaps e.Arg e.2>;
+    };
+    e.Z = /* EMPTY */;
+}
+
+GenNaturalSeq {
+    (e.Z s.Last)
+        = <GenNaturalSeq Started (1)(s.Last)>;
+    Started (e.Z s.Last)(s.Last) = (e.Z s.Last);
+    Started (e.Z s.NotLast)(s.Last)
+        = <GenNaturalSeq Started (e.Z s.NotLast <Add s.NotLast 1>)(s.Last)>;
 }
 
 ExtractRuleSubset {
-    s.funname (((e.LHS)e.RHS)e.Defs) = (e.LHS)(e.RHS)(e.Defs);
+    s.funname (((s.PatternType)(e.LHS)e.RHS)e.Defs) = (s.PatternType)(e.LHS)(e.RHS)(e.Defs);
     (s.funname (e.Numbers))(e.Defs)
-    , <ExtractRuleSubset Started (1)(e.Numbers)e.Defs> : ((e.LHS)e.RHS)e.OtherDefs
-        = (e.LHS)(e.RHS)(e.OtherDefs);
+    , <ExtractRuleSubset Started (1)(e.Numbers)e.Defs> : ((s.PatternType)(e.LHS)e.RHS)e.OtherDefs
+        = (s.PatternType)(e.LHS)(e.RHS)(e.OtherDefs);
     Started (s.Num)(s.Num e.Other)(e.Rule)e.RestRules 
         = (e.Rule)<ExtractRuleSubset Started (<Add s.Num 1>)(e.Other)e.RestRules>;
     Started (s.Num)(s.OtherNum e.Other)(e.Rule)e.RestRules 
@@ -585,16 +689,16 @@ YieldDriving {
     (e.LHS)((Restart))(e.RestDefs) t.fname (e.Config) t.NodeName ((e.Restrictions)(e.ConfigEquations)(e.FullConfig)(e.Stack)) 
         = <PushNodesScreening 
             <GenerateNextLevel 
-                (1)()(Unmod) t.NodeName (0) 
+                (1)(/* EMPTY */)(Unmod) t.NodeName (0) 
                 ((e.Restrictions)(e.ConfigEquations)()(e.FullConfig)(e.Stack))
                 (t.fname (Try e.Config)(SubsTo (Restart))(e.RestDefs))
-                <PostProcessPRTC ()()
-                    <Drive ()
+                <PostProcessPRTC (/* EMPTY */)(/* EMPTY */)
+                    <Drive ( )
                         <ClashLeft 0
                             <SaveDriveMarker 'dwevale_ind'> 
                             <SaveDriveMarker 'dwevalt_ind'>
                             <SaveDriveMarker 'dwevals_ind'>
-                            <Putout 1 'New Clash:'>
+                            <Putout 1 'New Clash: No ' <FreshIndex 'prtc_ind'>>
                             <Put 1
                                 ((e.ConfigEquations (Desired))()()(((e.Config) to (e.LHS))(Delayed ))('T'))
                             >
@@ -603,24 +707,25 @@ YieldDriving {
                 >
             >
         >;
-    (e.LHS)(e.RHS)(e.RestDefs) t.fname (e.Config) t.NodeName t.WholeNode
+    (s.PatternType)(e.LHS)(e.RHS)(e.RestDefs) t.fname (e.Config) t.NodeName t.WholeNode
+    , <Br 'PatternType='s.PatternType> : e.Z
     , <GetNodeEqs <PutNodeNewEqsToOld t.WholeNode>> : e.ConfigEquations
     , <ReplacePRTCAllEqs <GenerateFreshPRTC (e.LHS)(e.Config)> e.ConfigEquations> : t.PRTC
         = <PushNodesScreening
             <GenerateNextLevel 
-                (1)()(Unmod)t.NodeName (0) 
+                (1)(/* EMPTY */)(Unmod)t.NodeName (0) 
                 t.WholeNode
                 (t.fname (Try e.Config)(SubsTo e.RHS)(e.RestDefs))
-                <PostProcessPRTC ()()
+                <PostProcessPRTC (/* EMPTY */)(/* EMPTY */)
                     <RenewIndices 'vare_ind'>
                     <RenewIndices 'vars_ind'>
                     <RenewIndices 'vart_ind'>
-                    <Drive ()
-                        <ClashLeft 0
+                    <Drive s.PatternType ()
+                        <ClashLeft s.PatternType 0
                             <SaveDriveMarker 'dpare_ind'> 
                             <SaveDriveMarker 'dpart_ind'>
                             <SaveDriveMarker 'dpars_ind'>
-                            <Putout 1 'New Clash:'>
+                            <Putout 1 'New Clash: No '<FreshIndex 'prtc_ind'>>
                             <Putout 1 <FormatPRTCToPrint t.PRTC>>
                             t.PRTC
                             <Putout 1>
@@ -645,11 +750,11 @@ PushNodesScreening {
 GetReadyNodes {
     t.Node e.Other
     , <GetNodeStatus t.Node> : 
-    {Ready
-        = t.Node <GetReadyNodes e.Other>;
-    e.Z
-        = <GetReadyNodes e.Other>;
-    };
+        {Ready
+            = t.Node <GetReadyNodes e.Other>;
+        e.Z
+            = <GetReadyNodes e.Other>;
+        };
     /* EMPTY */ = /* EMPTY */;
 }
 
@@ -674,58 +779,34 @@ EquivalentEqSet {
     e.Other = 'F';
 }
 
+EquivalentNEqSet {
+    ( )e.1 = 'T';
+    (e.1 t.1 e.2) e.3 t.1 e.4 = <EquivalentNEqSet (e.1 e.2) e.3 e.4>;
+    e.Other = 'F';
+}
+
 FindEqsIntersection {
-    (t.1 e.1) e.20 t.1 e.21 = t.1 <FindEqsIntersection (e.1)e.20 e.21>;
-    (t.1 e.1) e.2 
-        = <PreserveIfImplied t.1(e.2)><FindEqsIntersection (e.1)e.2>;
-    () e.2 = ;
+    (e.OldEqs)(e.SubbedEqs)e.NewEqs
+        = <FindEqsIntersection Started (<Zip (e.OldEqs)(e.SubbedEqs)>)e.NewEqs>;
+    Started ((t.0 t.1) e.1) e.20 t.1 e.21 = t.0 <FindEqsIntersection Started (e.1)e.20 t.1 e.21>;
+    Started ((t.0 t.1) e.1) e.2
+    , <IfEqIsImplied t.1(e.2)> :
+        {'F'
+            = <FindEqsIntersection Started (e.1)e.2>;
+        'T'
+            = t.0 <FindEqsIntersection Started (e.1)e.2>;
+        };
+    Started (/* EMPTY */) e.2 = /* EMPTY */;
 }
 
-/*
-    Удаление вершины из дерева по ее пути.
-   [path][tree]^+ =>[tree]
-   [path]::=([nodename]+) (порядок - от корня к вершине, путь до которой указан).
-   [tree]::=(Node [NodeStatus] [NodeName] (([restriction]^*|Always|Push) ([equation]^*)([LetExpressions]^*)([FullConfiguration])([Stack]))
-   (Children [tree]^*))
-*/
-DeleteNode {
-/* 1. От пути осталось просто имя вершины - мы на нужном уровне в дереве, удаляем ее. */
-    (t.NodeName) t.Node e.NodesAfter
-    , <GetNodeName t.Node> : 
-        { t.NodeName
-            = e.NodesAfter;
-        t.OtherNodeName 
-            = t.Node <DeleteNode (t.NodeName) e.NodesAfter>;
-        };
-/* 2. На каждом новом этапе ищем предка удаляемой вершины, оставляем всех его соседей как есть, и переходим к его потомкам. */
-    (t.AncestorNodeName e.NextAncestors) t.OlderNode e.NodesAfter
-    , <GetNodeName t.OlderNode> :
-        {t.AncestorNodeName
-        , <GetNodeChildren t.OlderNode> : e.Children
-        , <DeleteNode (e.NextAncestors) e.Children> : e.NewChildren
-            = <PutNodeChildren t.OlderNode e.NewChildren> e.NodesAfter;
-	t.OtherNodeName
-            = t.OlderNode <DeleteNode (t.AncestorNodeName e.NextAncestors) e.NodesAfter>;
-        };
+$ENTRY Zip {
+    (t.1 e.1)(t.2 e.2) = (t.1 t.2)<Zip (e.1)(e.2)>;
+    ()() = ;
 }
 
-/*
-    Вставка вершины с обновленными данными в дерево.
-   [NewNode][path][Tree]^+ =>[tree]
-   [path] - позиция, на которую вставляется [NewNode]. Считаем, что она в дереве [Tree] всегда существует. 
-*/
-InsertNode {
-/* 1. От пути осталось просто имя вершины - мы на нужном уровне в дереве, вставляем новые данные. */
-	(Node e.NewConf)(t.NodeName) e.NodesBefore(Node t.Status t.NodeName e.Config) e.NodesAfter 
-            = e.NodesBefore (Node e.NewConf) e.NodesAfter;
-/* 2. На каждом новом этапе ищем предка изменяемой вершины, оставляем всех его соседей как есть, и переходим к его потомкам. */
-	(Node e.NewConf)
-	(t.AncestorNodeName e.NextAncestors) 
-	e.NodesBefore(Node t.Status t.AncestorNodeName e.Config (Children e.Children)) e.NodesAfter
-            = 
-            e.NodesBefore 
-            (Node t.Status t.AncestorNodeName e.Config (Children <InsertNode (Node e.NewConf)(e.NextAncestors) e.Children>)) 
-            e.NodesAfter;
+GetOldVariant {
+    t.0 t.1 = t.0;
+    t.0 = ;
 }
 
 /*
@@ -737,7 +818,7 @@ InsertNode {
 */
 ChooseSuccessorNode {
 /* 1. У данной вершины нет дочерних вершин, в которых не доделана развертка -> вершина помечается как Finished */
-    t.Node ()(e.Path)(e.Tree)
+    t.Node (/* EMPTY */)(e.Path)(e.Tree)
     , <PutNodeStatus t.Node Finished> : t.Node1
     , <PutNodeChildren t.Node1> : t.Node2
     , <PutNodeLets t.Node2 (Subtree <FreshIndex 'Subtree'>)> : t.Node3
@@ -774,7 +855,7 @@ IsRoot {
    (Node e.Node)(e.Path)(e.Tree)=>[nodeData][path][tree]
 */
 ChooseUndrivenNode {
-/* 1. нашлась вершина, на которой не запускалась прогонка и проверка на повторность состояния - возвращаем ее. */
+/* 1. Нашлась вершина, на которой не запускалась прогонка и проверка на повторность состояния - возвращаем ее. */
     t.Node t.Path t.Tree
     , <CheckAlter <GetNodeStatus t.Node> EITHER Undriven Ready> : True 
         = t.Node t.Path t.Tree;
@@ -811,11 +892,11 @@ FindNodePath {
 }
 
 ProlongPath {
-	(e.PathBefore) t.NodeName = (e.PathBefore t.NodeName);
+    (e.PathBefore) t.NodeName = (e.PathBefore t.NodeName);
 }
 
 ShortenPath {
-	(e.PathBefore t.NodeName) = (e.PathBefore);
+    (e.PathBefore t.NodeName) = (e.PathBefore);
 }
 
 /* Для выхода по невозможному отождествлению. */
@@ -834,7 +915,7 @@ PrintIfTracing {
     e.1 = e.1 <Putout 1 <FormatTreeToPrint e.1>>;
 }
 CutLetData {
-    = ;
+    /* EMPTY */ = /* EMPTY */;
     (t.NodeName t.Assignment) e.Rest 
         = t.Assignment <CutLetData e.Rest>;
 }
@@ -845,10 +926,10 @@ FindGenerNegative {
             <SubstituteInNegative ((assign (par e.oldpar)(t.newpar)))e.Neg>>;
     (e.Parameters)((t.NodeNum (assign e.OtherExpr))e.OtherAssignments) e.Equations
         = <FindGenerNegative (e.Parameters)(e.OtherAssignments)e.Equations>;
-    (e.Parameters)()(OR e.Clashes)e.OtherOR
+    (e.Parameters)()(OR (s.Log)e.Clashes)e.OtherOR
     , <CheckParSet(e.Parameters)(e.Clashes)> : 
         {'T'
-            = (OR e.Clashes)<FindGenerNegative (e.Parameters)()e.OtherOR>;
+            = (OR (s.Log)e.Clashes)<FindGenerNegative (e.Parameters)()e.OtherOR>;
         'F'
             = <FindGenerNegative (e.Parameters)()e.OtherOR>;
         };
@@ -857,7 +938,7 @@ FindGenerNegative {
 
 FindGenerEqs {
     (e.Parameters)((t.NodeNum (assign t.newpar((par e.oldpar))))e.OtherAssignments) e.Equations
-        = <FindGenerEqs (e.Parameters)(e.OtherAssignments)<Substitute ((assign (par e.oldpar)(t.newpar)))e.Equations>>;
+        = <FindGenerEqs (e.Parameters)(e.OtherAssignments) <Substitute ((assign (par e.oldpar)(t.newpar)))e.Equations>>;
     (e.Parameters)((t.NodeNum (assign e.OtherExpr))e.OtherAssignments) e.Equations
         = <FindGenerEqs (e.Parameters)(e.OtherAssignments)e.Equations>;
     (e.Parameters)()(AreEqual (s.Log)(e.LHS)(e.RHS))e.OtherEqs
@@ -865,9 +946,9 @@ FindGenerEqs {
         {'T'
             = (AreEqual ('F')(e.LHS)(e.RHS))<FindGenerEqs (e.Parameters)()e.OtherEqs>;
         'F'
-            = <FindGenerEqs (e.Parameters)()e.OtherEqs>;
+            = <FindGenerEqs (e.Parameters)(/* EMPTY */)e.OtherEqs>;
         };
-    (e.Parameters)() = ;
+    (e.Parameters)(/* EMPTY */) = /* EMPTY */;
 }
 
 CheckParSet {
@@ -887,4 +968,25 @@ CheckParSet {
 InSet {
     t.1 e.1 t.1 e.2 = 'T';
     t.1 e.Other = 'F';
+}
+
+FindNEqsIntersection {
+    (e.1 t.1 e.2) e.11 t.1 e.12 = <FindNEqsIntersection (e.1 e.2) e.11 t.1 e.12>;
+    (t.1 e.1) e.2 = <PreserveNeqIfImplied t.1 (e.2)><FindNEqsIntersection (e.1)e.2>;
+    () e.2 = /* EMPTY */;
+}
+
+PreserveNeqIfImplied {
+    (OR ('T')((e.RHS) to (e.LHS))) e.Neqs
+    , <ProcessLinearInequality ((e.RHS) to (e.LHS))> : (OR t.SingleIneq)
+        = <PreserveNeqIfImplied (OR ('T') t.SingleIneq)e.Neqs>;
+    t.1 e.N1 t.1 e.N2 = t.1;
+    e.Z = /* EMPTY */;
+}
+
+GetPreservedEqs {
+    (e.OldEqs)(e.SubEqs)(e.NewEqs)
+     = <FindEqsIntersection 
+        (e.OldEqs)(e.SubEqs) e.NewEqs 
+        >;
 }

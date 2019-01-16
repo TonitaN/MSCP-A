@@ -1,11 +1,11 @@
 /*
- Функция Prefix проверяет, является ли ее первый аргумент префиксом второго, в алфавите {'A','B'}.
- Функция Concat --- ассоциативное приписывание.
- Задача суперкомпилятора --- проверить, всегда ли с его помощью получается префикс.
+ The function Prefix checks whether its first argument is a prefix of the second in the alphabet {'A','B'}.
+ The function Concat is the in-built concatenation.
+ The task of the supercompiler is to verify whether the concatenation function does not change its first argument.
 */
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 
 $ENTRY Go {
@@ -13,39 +13,35 @@ $ENTRY Go {
 }
 
 Prefix {
-	() e.2 = 'T';
-	(t.x e.1) t.x e.2 = <Prefix (e.1) e.2>;
-	('A' e.1) 'B' e.2 = 'F';
-	('B' e.1) 'A' e.2 = 'F';
-	(t.x e.1) = 'F';
+	() e.x = 'T';
+	(t.y e.x1) t.y e.x2 = <Prefix (e.x1) e.x2>;
+	('A' e.x1) 'B' e.x2 = 'F';
+	('B' e.x1) 'A' e.x2 = 'F';
+	(t.y e.x) = 'F';
 }
 
 Concat {
-	(e.1) e.2 = e.1 e.2;
+	(e.x1) e.x2 = e.x1 e.x2;
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 /*
 $ENTRY Go {
- (e.1) e.2 =  <InputFormat_0 (e.1) (e.2)>;
+ (e.x1) e.x2 =  <InputFormat_0 (e.x1) (e.x2)>;
 }
 
 
 InputFormat_0 {
- () (e.1) =  'T';
- (t.1 e.1) (e.2) =  <Prefix_12_0 (e.1) (e.2)>;
+ () (e.x1) =  'T';
+ (t.y1 e.x1) (e.x2) =  <Prefix_12_0 (e.x1) (e.x2)>;
 }
 
 
 Prefix_12_0 {
- () (e.1) =  'T';
- (t.1 e.1) (e.2) =  <Prefix_12_0 (e.1) (e.2)>;
+ () (e.x1) =  'T';
+ (t.y1 e.x1) (e.x2) =  <Prefix_12_0 (e.x1) (e.x2)>;
 }
 */
 
-/*
- Функция Concat приписывания существенно использует встроенную ассоциативность входного языка.
- За счет этого верификация проходит успешно.
-*/

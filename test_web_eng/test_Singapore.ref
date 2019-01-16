@@ -1,20 +1,17 @@
 /*
- Тест взят из статьи 2016 года на CAV:
+ The test is taken from the following paper:
  M.T Trinh, D.H Chu, J. Jaffar, Progressive reasoning over recursively-defined strings /
- International Conference on Computer Aided Verification, 218-240
+ International Conference on Computer Aided Verification 2016, 218-240
 
- Тест, в котором проверяется наличие буквы 'D' в слове 'A'^n 'B'^n 'C'^n.
- Здесь многократно отрабатывает тот же эффект, что и в test_ba2.ref.
- Поскольку группы одинаковых букв, выкидываемые функциями Gram, отделены друг от друга
- этими вызовами, суперкомпилятору удаётся сохранить информацию об их однородности.
+ The program checks whether the letter 'D' can occur in the word 'A'^n 'B'^n 'C'^n.
 */
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 
 $ENTRY Go {
- e.1 =  <G0 <GramA e.1> <GramB e.1> <GramC e.1>>;
+ e.p =  <G0 <GramA e.p> <GramB e.p> <GramC e.p>>; /* The input parameter e.p is N represented as a Peano number. */
 }
 
 
@@ -33,58 +30,58 @@ GramC {
 
 G0 {
          = 'T';
-	e.1 'D'  = 'F';
-        e.1 t.x = <G0 e.1>;
+	e.x 'D'  = 'F';
+        e.x t.y = <G0 e.x>; /* The order of the rules determines that t.y != 'D'. */
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 
 /*
 $ENTRY Go {
- e.1 =  <InputFormat_0 e.1>;
+ e.x1 =  <InputFormat_0 e.x1>;
 }
 
 
 InputFormat_0 {
- 'I' e.1 =  <G0_1 (e.1) () (e.1)>;
+ 'I' e.x1 =  <G0_0 (e.x1) () (e.x1)>;
  =  'T';
 }
 
 
-G0_1 {
- (e.1) (e.2) ('I' e.3) =  <G0_1 (e.1) (e.2 'C') (e.3)>;
- (e.1) (e.2) () =  <G0_3_1 (e.1) (e.2)>;
-}
-
-
-G0_2 {
- (e.1) (e.2) ('I' e.3) =  <G0_2 (e.1) (e.2 'B') (e.3)>;
- (e.1) (e.2) () =  <G0_3_2 (e.1) (e.2)>;
-}
-
-
-G0_3_1 {
- (e.1) (e.2 'C') =  <G0_3_1 (e.1) (e.2)>;
- (e.1) () =  <G0_2 (e.1) () (e.1)>;
-}
-
-
-G0_3_2 {
- (e.1) (e.2 'B') =  <G0_3_2 (e.1) (e.2)>;
- (e.1) () =  <G0_3 () (e.1)>;
-}
-
-
-G0_3 {
- (e.1) ('I' e.2) =  <G0_3 (e.1 'A') (e.2)>;
- (e.1) () =  <G0_3_0 e.1>;
+G0_0 {
+ (e.x1) (e.x2) ('I' e.x3) =  <G0_0 (e.x1) (e.x2 'C') (e.x3)>;
+ (e.x1) (e.x2) () =  <G0_3_0 (e.x1) (e.x2)>;
 }
 
 
 G0_3_0 {
- e.1 'A' =  <G0_3_0 e.1>;
+ (e.x1) (e.x2 'C') =  <G0_3_0 (e.x1) (e.x2)>;
+ (e.x1) () =  <G0_1 (e.x1) () (e.x1)>;
+}
+
+
+G0_1 {
+ (e.x1) (e.x2) ('I' e.x3) =  <G0_1 (e.x1) (e.x2 'B') (e.x3)>;
+ (e.x1) (e.x2) () =  <G0_3_1 (e.x1) (e.x2)>;
+}
+
+
+G0_3_1 {
+ (e.x1) (e.x2 'B') =  <G0_3_1 (e.x1) (e.x2)>;
+ (e.x1) () =  <G0_2 () (e.x1)>;
+}
+
+
+G0_2 {
+ (e.x1) ('I' e.x2) =  <G0_2 (e.x1 'A') (e.x2)>;
+ (e.x1) () =  <G0_3_2 e.x1>;
+}
+
+
+G0_3_2 {
+ e.x1 'A' =  <G0_3_2 e.x1>;
  =  'T';
 }
 */

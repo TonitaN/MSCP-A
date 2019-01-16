@@ -1,0 +1,36 @@
+/*
+  The test for preserving the negative restrictions in the generalizations.
+  The second argument of function F can not contain letters 'A'.
+  The task is to prove that the last letter of <F e.x> is not 'A', whatever e.x is.  
+*/
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+  e.X = <F (e.X)'B'>;
+}
+F {
+  ('A'e.X1) e.X2 = <F (e.X1) e.X2>;
+  (s.Z e.X1) e.X2 = <F (e.X1) e.X2 s.Z>;
+  ( )e.X 'A' = True;
+  ( )e.X = False;
+}
+
+/*********************************************************************************/
+/*                     the residual program                                      */
+/*********************************************************************************/
+
+/*
+$ENTRY Go {
+ e.x1 =  <F_124_0 (e.x1) ()>;
+}
+
+
+F_124_0 {
+ ('A' e.x1) (e.x2) =  <F_124_0 (e.x1) (e.x2)>;
+ (s.z1 e.x1) (e.x2) =  <F_124_0 (e.x1) (e.x2 s.z1)>;
+ () (e.x1) =  False;
+}
+*/

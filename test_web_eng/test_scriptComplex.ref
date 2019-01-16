@@ -1,0 +1,69 @@
+/*
+  The complex sanitization verification.
+  The simple sanitization algorithm (modeled by RpLb) changing symbols '<' to '&lt;' in the html-code is correct in the simplest case.
+  However, if an adversary uses the innertext method in the inserted code, this method fails because all the tags '&lt;' are changed
+  back to '<' by the innertext method (modeled by function Interpret).
+
+  If the sanitization procedure in addition to the previous changes 'innertext' to 'inner_text' in the untrusted code, an adversary cannot use the method.
+
+  The example is taken from the paper
+  S.Guarnieri, M.Pistoia, O.Tripp, J.Dolby, S.Teihet, R.Berg 'Saving the World Wide Web from Vulnerable JavaScript' / ISSTA'11, July 17-21, Toronto, Canada.
+*/
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+ e.Text =  <Test <Check <RpHC <RpLb e.Text>>>>;
+}
+
+
+RpLb {
+    e.Str1 '<' e.Str2 = e.Str1 '&lt;'<RpLb e.Str2>;
+    e.OtherStr = e.OtherStr;
+}
+
+RpHC {
+    e.Str1 'innertext' e.Str2 = e.Str1 'inner_text'<RpHC e.Str2>;
+    e.OtherStr = e.OtherStr;
+}
+
+RpLbInv {
+    e.Str1 '&lt;' e.Str2 = e.Str1'<'<RpLbInv e.Str2>;
+    e.OtherStr = e.OtherStr;                   
+}
+
+Interpret {
+    e.Str1 'innertext(' e.Str2 = e.Str1 <Interpret <RpLbInv e.Str2>>;
+    e.OtherStr = e.OtherStr;
+}
+
+Test {
+    e.Str1 '<script' e.Str2 = 'F';
+    e.OtherStr = 'T';
+    '<script' e.RestStr = 'F';
+     t.X e.RestStr = <Test e.RestStr>;
+     =  'T';
+}
+
+/***********************************************/
+/*          the residual program               */
+/***********************************************/
+/*
+$ENTRY Go {
+ e.x1 =  <Test_0 () (e.x1)>;
+}
+
+
+Test_0 {
+ (e.x1) (e.x2 '<' e.x3) =  <Test_0 (e.x1 e.x2 '&lt;') (e.x3)>;
+ (e.x1) (e.x2) =  <Test_1 () (e.x1 e.x2)>;
+}
+
+
+Test_1 {
+ (e.x1) (e.x2 'innertext' e.x3) =  <Test_1 (e.x1 e.x2 'inner_text') (e.x3)>;
+ (e.x1) (e.x2) =  'T';
+}
+
+*/

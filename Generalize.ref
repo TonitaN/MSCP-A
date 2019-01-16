@@ -13,6 +13,9 @@
    FoldStackIntoConf - извлечение выражения из стека. Формат:
    ((assign (var l t.varname)(e.Val))^+)^+ => [Expression]
    
+   IfEquivalentConf - проверка двух выражений на совпадение по модулю переименования параметров. Формат:
+   ([Assignments])([Expr])([Expr]) => ([Assignments]) | False
+   
    CheckNode4Generalization - проверка на вложение (и построение обобщения, если оно существует). Формат:
    [CurrentNodeName]([CurrentConfiguration])([CurrentStack])([Path])[Tree]
    =>
@@ -21,26 +24,38 @@
 */
 
 /* из basics.ref */
-$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, FindTerm, RenewIndices, FreshIndex, CurrentIndex,MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
+$EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, SetIntersect, FindTerm, RenewIndices, FreshIndex, 
+        CurrentIndex,MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
 /* из basics.ref */
-$EXTERN Substitute,FindNode,CompareCalls,ComplexCompareCalls, Collapse,AddTime, RandomNumber;
+$EXTERN Substitute,FindNode,CompareCalls,ComplexCompareCalls, Collapse,AddTime, RandomNumber,IfBounded,IfConstant,CountLength;
 /* из drive.ref */
 $EXTERN FormatStack;
 /* из stack.ref */
 $EXTERN YieldDecomposition;
 /* из formats.ref */
 $EXTERN IsFreeExpression;
+/* из Drive.ref */
+$EXTERN ClashLeft, Drive, ClassIdentifier;
 /* из residual.ref */
 $EXTERN ConvertPrefal;
 /* из access_MSCP.ref */
 $EXTERN GetNodeConfig, GetNodeStack, GetNodeLets, PutNodeConfig, PutNodeStack, 
-        GenerateNewNode, PutNodeLets, PutNodeNewEqs, PutNodeNewEqsToOld;
-
+        GenerateNewNode, PutNodeLets, PutNodeNewEqs, PutNodeNewEqsToOld,PutNodeNegEqs,GetNodeEqs, 
+        SubstituteInNegative, AddNewLines,
+        GenerateFreshPRTC, AddPRTCNegativeInfo;
+/* из WordEqsCases.ref */
+$EXTERN UnfoldMainEq;
+/* из WordEquations.ref */
+$EXTERN ScreenNegatives;
 
 /*
    $ENTRY Go {
      = <MGUAssoc ((par e <MyZero>))((assign (par e <MyZero>) (ToUnify ('ABC')('BBA'))))()>}; 
 */
+/*$ENTRY Go {
+     = <HomeomorphicEmb ((call ((M1 (2 ))2 )(args (arg ('*AA')('*'(par e x ))('*AA')('*'(par e x ))))))
+(call ((M1 (2 ))4 )(args (arg ('*A')('*'(par e 1 ))('*AA')('*A'(par e 1 )))))>;
+} */
 
      
 
@@ -62,15 +77,15 @@ $ENTRY CheckNode4Equivalence {
         (e.Data)()t.Tree = Ready;
 /* 2. Нашли эквивалентный по конфигурации узел предка. */
 	(e.Data)(e.Path t.NodeName)t.Tree, 
-            <IfEquivalentConf ()(e.Data)<GetFullConf <FindNode (e.Path t.NodeName) t.Tree>>>:(e.subs) 
+            <IfEquivalentConf ()(e.Data)<GetFullConf <FindNode (e.Path t.NodeName) t.Tree>>> :(e.subs) 
                 = <RandomizedSaveTest e.Data>(Looped t.NodeName e.subs);
 /* 3. Очередной узел не является эквивалентным - проверяем следующего предка по пути к корню. */
         (e.Data)(e.Path t.NodeName)t.Tree = <CheckNode4Equivalence (e.Data)(e.Path)t.Tree>;
 }
 
 RandomizedSaveTest {
-    e.Data,
-        <RandomNumber 1 1000> : 
+    e.Data
+    , <RandomNumber 1 1000> : 
         { 3 =   <Putout 3 e.Data>;
         s.Other = ;
         };
@@ -85,7 +100,9 @@ RandomizedSaveTest {
 */
 GetFullConf {
 /* 1. Извлекаем полную конфигурацию терма, если он не есть let-расщепление. */
-    t.Node, <GetNodeLets t.Node> : (), <GetNodeConfig t.Node> : e.FullConf = (e.FullConf);
+    t.Node
+    , <GetNodeLets t.Node> : (/* EMPTY */)
+    , <GetNodeConfig t.Node> : e.FullConf = (e.FullConf);
 /* 2. Если узел содержит let-расщепление, его не проверяем. */
     t.Node = False;
 }
@@ -98,7 +115,7 @@ $ENTRY FoldStackIntoConf {
 /* 1. Выражение построено. */
     ((assign (var l e.varname) (e.Val))) = <DeleteObjectives e.Val>;
 /* 2. Исчерпали переменные уровня -> переходим к следующему. */
-    ()(e.NextLevel)e.UpperLevels
+    (/* EMPTY */)(e.NextLevel)e.UpperLevels
         = <FoldStackIntoConf (e.NextLevel)e.UpperLevels>;
 /* 3. Подставляем значение стековой переменной вместо ее самой в верхний уровень. */
     ((assign (var l e.varname) (e.Val))e.ThisLevel)(e.NextLevel)e.UpperLevels    
@@ -126,46 +143,45 @@ DeleteObjectives {
    ([Substitutions])([Expression])([Expression]|False)=>([ParAssignment]^*)|False 
 */
 
-IfEquivalentConf {
+$ENTRY IfEquivalentConf {
 /* 1. Завершена успешно. Проверяем, есть ли разные подстановки в один и тот же параметр. */
     (e.subst)(e.1)(e.1) = <IfCorrectSubs e.subst>;
 /*
    2. Параметры равных типов считаются эквивалентными. Это правило стоит выше правила 3 (о равных термах), 
    чтобы не терялась подстановка параметра в себя. 
 */
-
-    (e.subst)((par s.type e.x)e.Conf1)((par s.type e.y)e.Conf2) 
-            = <IfEquivalentConf 
-                    (e.subst (assign (par s.type e.x)((par s.type e.y))))
-                    (e.Conf1)(e.Conf2)
-            >;
+    (e.subst)((t.sort s.type e.x)e.Conf1)((t.sort s.type e.y)e.Conf2)
+    , par weval var : e.1 t.sort e.2
+        = <IfEquivalentConf 
+                (e.subst (assign (t.sort s.type e.x)((t.sort s.type e.y))))
+                (e.Conf1)(e.Conf2)
+        >;
 /* 3. Равные термы эквиваленты. */
     (e.subst)(t.1 e.Conf1)(t.1 e.Conf2)
-            = <IfEquivalentConf (e.subst)(e.Conf1)(e.Conf2)>;
+        = <IfEquivalentConf (e.subst)(e.Conf1)(e.Conf2)>;
 /*
    4. Сопоставление друг другу выражений со скобками успешно, если части выражений, отделенные скобками, эквивалентны.
    Через LogAnd --- поскольку нам важно, где именно стоят скобки.
    Т.е. ('A')'B' не эквивалентно ('AB'), из-за положения скобок. 
 */
-
-    (e.subst)(('*' e.Conf11) e.Conf12)(('*' e.Conf21) e.Conf22),
-    <IfEquivalentConf (e.subst)(e.Conf11)(e.Conf21)> : (e.newSubst) 
-            = <IfEquivalentConf (e.newSubst)(e.Conf12)(e.Conf22)>;
+    (e.subst)(('*' e.Conf11) e.Conf12)(('*' e.Conf21) e.Conf22)
+    , <IfEquivalentConf (e.subst)(e.Conf11)(e.Conf21)> : (e.newSubst) 
+        = <IfEquivalentConf (e.newSubst)(e.Conf12)(e.Conf22)>;
 /* 5. Эквивалентность вызовов = эквивалентность аргументов и совпадение имен функций. */
-    (e.subst)((call t.fname1 (args (arg e.Conf1Arg))) e.Conf1)((call t.fname2 (args (arg e.Conf2Arg))) e.Conf2),
-    <CompareCalls t.fname1 t.fname2> : 'T',
-    <IfEquivalentConf (e.subst)(e.Conf1Arg)(e.Conf2Arg)> : (e.newSubst)
-            = <IfEquivalentConf (e.newSubst)(e.Conf1)(e.Conf2)>;
+    (e.subst)((call t.fname1 (args (arg e.Conf1Arg))) e.Conf1)((call t.fname2 (args (arg e.Conf2Arg))) e.Conf2)
+    , <CompareCalls t.fname1 t.fname2> : 'T'
+    , <IfEquivalentConf (e.subst)(e.Conf1Arg)(e.Conf2Arg)> : (e.newSubst)
+        = <IfEquivalentConf (e.newSubst)(e.Conf1)(e.Conf2)>;
 /* 6. Иначе эквивалентности нет. */
     (e.subst)(e.1) e.2 = False;
 }
 
 /* Удаление повторных подстановок параметров и выход в противоречие, если в один и тот же подставляются различные. */
 IfCorrectSubs {
-	e.1 t.1 e.2 t.1 e.3 = <IfCorrectSubs e.1 t.1 e.2 e.3>;
-	e.1 (assign t.data t.val) e.2 (assign t.data t.otherval) e.3 
-            = False;
-	e.Z = (e.Z);
+    e.1 t.1 e.2 t.1 e.3 = <IfCorrectSubs e.1 t.1 e.2 e.3>;
+    e.1 (assign t.data t.val) e.2 (assign t.data t.otherval) e.3 
+        = False;
+    e.Z = (e.Z);
 }
 
 /*---------------------------------------------------------------------------------
@@ -181,37 +197,39 @@ IfCorrectSubs {
    Конфигурация, являющаяся MGU (обобщенная конфигурация), в список Children не входит.
 */
 $ENTRY CheckNode4Generalization {
-	t.SuccName s.Flag (e.FullConf)(e.Stack)(e.Path)t.Tree,
-        s.Flag :
-        {
-        'T'
+ /* Перед тем как обобщать, проверяем, не является ли активный вызов в конфигурации вызовом функции без рекурсии. */
+    t.SuccName s.Flag (e.Eqs)(e.FullConf)(e.Stack)(e.Path)t.Tree
+    , s.Flag :
+        {'T'
             = Driven;
         s.OtherFlag
-            = <CheckNode4Generalization Started t.SuccName (e.FullConf)(e.Stack)(e.Path)t.Tree>;
+            = <CheckNode4Generalization Started t.SuccName (e.Eqs)(e.FullConf)(e.Stack)(e.Path)t.Tree>;
         };
 /* 1. Дошли до корня, и кандидатов на обобщение нет -> узел прогнан. */
-	Started t.SuccName (e.FullConf)(e.Stack)()t.Tree = Driven;
+    Started t.SuccName (e.Eqs)(e.FullConf)(e.Stack)(/* NO MORE NODES */)t.Tree = Driven;
 /* 2. Проверяем наличие сходства с очередным узлом предка. Если оно есть, запускаем процесс обобщения. */
-	Started t.SuccName (e.FullConf)(e.Stack)(e.Path t.NodeName)t.Tree,
-            <Collapse <TimeElapsed 0>>
-            <EmbeddingConfs 
-                    <Putout 1 'Trying to embed: '>
-                    (<GetFullConfPlusStack <FindNode (e.Path t.NodeName) t.Tree>>)
-                    ((e.FullConf)(e.Stack))
-            >
-            <Collapse <AddTime ('emb_time') <TimeElapsed>>> : s.Depth 'T' 
-                = <Putout 1 'Embedding is successful.'>
-                    <YieldGeneralization (Depth s.Depth) t.SuccName t.NodeName
-                        <GetFullConfPlusStack
-                            <FindNode (e.Path t.NodeName) t.Tree>
-                        >
-                        <Collapse <TimeElapsed 0>>        
-                        (e.FullConf)(e.Stack)
-                    >
-                    <AddTime ('mgu_time')<TimeElapsed>>;
+    Started t.SuccName (e.Eqs)(e.FullConf)(e.Stack)(e.Path t.NodeName)t.Tree
+    , <FindNode (e.Path t.NodeName) t.Tree> : t.ImbeddingNode
+    , <GetFullConfPlusStack t.ImbeddingNode> : (e.UpperConf)(e.UpperStack)
+    , <GetNodeEqs t.ImbeddingNode> : e.Eqs2
+    , <Collapse <TimeElapsed 0>>
+      <EmbeddingConfs 
+        <Putout 1 '  Trying to embed: '>
+        ((e.Eqs2)(e.UpperConf)(e.UpperStack))
+        ((e.Eqs)(e.FullConf)(e.Stack))
+      >
+      <Collapse <AddTime ('emb_time') <TimeElapsed>>>
+        : s.Depth 'T'
+        = <Putout 1 '  EMBEDDING IS SUCCESSFUL.'>
+        <YieldGeneralization (Depth s.Depth) t.SuccName t.NodeName
+            (e.Eqs2)(e.UpperConf)(e.UpperStack)
+            <Collapse <TimeElapsed 0>>        
+            (e.Eqs)(e.FullConf)(e.Stack)
+        >
+        <AddTime ('mgu_time')<TimeElapsed>>;
 /* 3. В противном случае осуществляем проверку на сходство очередной конфигурации предка. */
-    	Started t.SuccName (e.FullConf)(e.Stack)(e.Path t.NodeName)t.Tree
-                = <CheckNode4Generalization Started t.SuccName (e.FullConf)(e.Stack)(e.Path)t.Tree>;
+    Started t.SuccName (e.Eqs)(e.FullConf)(e.Stack)(e.Path t.NodeName)t.Tree
+        = <CheckNode4Generalization Started t.SuccName (e.Eqs)(e.FullConf)(e.Stack)(e.Path)t.Tree>;
 }
 
 /*
@@ -219,9 +237,10 @@ $ENTRY CheckNode4Generalization {
    [Node] => ([Expression])([Stack])
 */
 GetFullConfPlusStack {
-        t.Node, <GetNodeConfig t.Node> : e.FullConf, 
-        <GetNodeStack t.Node> : e.Stack
-                = (e.FullConf)(e.Stack);
+    t.Node
+    , <GetNodeConfig t.Node> : e.FullConf
+    , <GetNodeStack t.Node> : e.Stack
+        = (e.FullConf)(e.Stack);
 }
 
 /*
@@ -242,28 +261,27 @@ YieldGeneralization {
                 >; 
 */
 
-    (Depth s.Depth) t.SuccessorName t.UpperNodeName (e.UpperConf)(e.UpperStack)(e.LowerConf)(e.LowerStack),
-        <IfEquivalentConf ()(e.UpperConf)(e.LowerConf)> : (e.Asgs)
-            = <RandomizedSaveTest e.LowerConf><Putout 1 'Depth is 's.Depth>
-            <AnalyzeMGUResults 
-                t.SuccessorName t.UpperNodeName (e.UpperConf)(e.UpperConf)(<GenerateTrivialMGUs e.Asgs>)()
-            >;
+    (Depth s.Depth) t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.UpperConf)(e.UpperStack)(e.LowerEqs)(e.LowerConf)(e.LowerStack)
+    , <IfEquivalentConf (/* EMPTY */)(e.UpperConf)(e.LowerConf)> : (e.Asgs)
+        = <RandomizedSaveTest e.LowerConf><Putout 1 'Depth is 's.Depth>
+        <AnalyzeMGUResults 
+            t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.LowerEqs)(e.UpperConf)(e.UpperConf)(<GenerateTrivialMGUs e.Asgs>)(/* EMPTY */)
+        >;
             
-   (Depth s.Depth) t.SuccessorName t.UpperNodeName (e.UpperConf)(e.UpperStack)(e.LowerConf)(e.LowerStack) 
-               = <RandomizedSaveTest e.LowerConf>               
-                <AnalyzeMGUResults t.SuccessorName t.UpperNodeName (e.UpperConf) 
-                    <Putout 1 'Depth is 's.Depth>
-                    <MergeFreeParameters 
-                        <FormatUnification (e.UpperConf)(e.LowerConf)>
-                    >
-                >;
+   (Depth s.Depth) t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.UpperConf)(e.UpperStack)(e.LowerEqs)(e.LowerConf)(e.LowerStack) 
+        = <RandomizedSaveTest e.LowerConf>               
+        <AnalyzeMGUResults t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.LowerEqs)(e.UpperConf) 
+            <Putout 1 '  Depth is 's.Depth>
+                <FormatUnification (e.UpperEqs)(e.LowerEqs)(e.UpperConf)(e.LowerConf)>
+        >;
 }
 
 /* (e.Pattern)(e.MGUs) => (e.Pattern)(e.MGUs) */
 MergeFreeParameters {
 /* e.1 = e.1; */
     (e.Pattern)(e.MGUs)
-        = <SubstituteMergedPars (e.Pattern)(e.MGUs)()<SortFreeSeq (e.MGUs)<FindFreeSeq e.Pattern>>>;
+        = <SubstituteMergedPars (e.Pattern)(e.MGUs)(/* EMPTY */)<SortFreeSeq (e.MGUs)<FindFreeSeq e.Pattern>>>;
+    e.1 = e.1;
 }
 
 /* e.ParameterizedExpression => ((par e t.name1)(par e t.name2))^* */
@@ -276,7 +294,7 @@ FindFreeSeq {
         = <FindFreeSeq e.1><FindFreeSeq e.arg><FindFreeSeq e.2>;
     e.1 ('*' e.inbr) e.2
         = <FindFreeSeq e.inbr><FindFreeSeq e.2>;
-    e.Z = ;
+    e.Z = /* EMPTY */;
 }
 
 /*
@@ -285,7 +303,7 @@ FindFreeSeq {
 */
 
 SortFreeSeq {
-    (e.MGUs) = ;
+    (e.MGUs) = /* EMPTY */;
     (e.MGUs)e.1 t.1 e.2 t.1 e.3
         = <SortFreeSeq (e.MGUs) e.1 t.1 e.2 e.3>;
 /*
@@ -320,14 +338,14 @@ DeleteNonInfMGUs {
 SubstituteMergedPars {
     (e.Pattern)(e.MGUs)(e.Equations) = <DeleteNonInfMGUs (e.Pattern)(e.MGUs)>(e.Equations);
     (e.Pattern)(e.MGUs)(e.Equations)e.1 t.1 e.2 t.1 e.3 = <SubstituteMergedPars (e.Pattern)(e.MGUs)(e.Equations) e.1 t.1 e.2 e.3>;
-    (e.Pattern)(e.MGUs)(e.Equations)(ToMerge t.par1 t.par2) e.ToMerge,
-    <FindMGU t.par1 e.MGUs> : (assign t.par1 (e.Val11)(e.Val12)),
-    <FindMGU t.par2 e.MGUs> : (assign t.par2 (e.Val21)(e.Val22)),
-    <FreshIndex 'pare_ind'> : t.newind
+    (e.Pattern)(e.MGUs)(e.Equations)(ToMerge t.par1 t.par2) e.ToMerge
+    , <FindMGU t.par1 e.MGUs> : (assign t.par1 (e.Val11)(e.Val12))
+    , <FindMGU t.par2 e.MGUs> : (assign t.par2 (e.Val21)(e.Val22))
+    , <FreshIndex 'pare_ind'> : t.newind
         = <SubstituteMergedPars 
             (<SubstituteOnCond (t.par1)()((assign t.par1 ((par e t.newind)))(assign t.par2 ())) e.Pattern>)
             (e.MGUs (assign (par e t.newind) (e.Val11 e.Val21)(e.Val12 e.Val22)))
-            (e.Equations (AreEqual ('F')((par e t.newind))(t.par1 t.par2)))            
+            (e.Equations /* (AreEqual ('F')((par e t.newind))(t.par1 t.par2))*/ )            
             e.ToMerge
         >;
 /*   (e.Pattern)(e.MGUs)(ToMerge (1) t.par1 t.par2) e.ToMerge,
@@ -347,11 +365,11 @@ SubstituteMergedPars {
 */
 SubstituteOnCond {
     (e.Before)(e.After)(e.Subst) = ;
-    (e.Before)(e.After)(e.Subst) ('*'e.1)e.2,
-    <SubstituteOnCond (e.Before)(e.After)(e.Subst)e.1> : e.InBr
+    (e.Before)(e.After)(e.Subst) ('*'e.1)e.2
+    , <SubstituteOnCond (e.Before)(e.After)(e.Subst)e.1> : e.InBr
         = ('*'e.InBr)<SubstituteOnCond (e.Before)(e.After)(e.Subst)e.2>;
-    (e.Before)(e.After)(e.Subst) (call t.fname (args (arg e.1)))e.2,
-      <SubstituteOnCond (e.Before)(e.After)(e.Subst)e.1> : e.Arg
+    (e.Before)(e.After)(e.Subst) (call t.fname (args (arg e.1)))e.2
+    , <SubstituteOnCond (e.Before)(e.After)(e.Subst)e.1> : e.Arg
         = (call t.fname (args (arg e.Arg)))<SubstituteOnCond (e.Before)(e.After)(e.Subst)e.2>;
     (t.pred)(e.After)((assign t.pred (e.Val1)) (assign t.par (e.Val2))) t.pred t.par e.1
         = e.Val1 e.Val2 <SubstituteOnCond (t.pred)(e.After)((assign t.pred (e.Val1)) (assign t.par (e.Val2))) e.1>;
@@ -359,8 +377,8 @@ SubstituteOnCond {
     (e.Before)(t.post)((assign t.par (e.Val))) t.par t.post e.1 =
         e.Val t.post <SubstituteOnCond (e.Before)(t.post)((assign t.par (e.Val))) e.1>; 
 */
-    (e.Before)(e.After)(e.Subst) t.1 e.1 =
-        t.1 <SubstituteOnCond (e.Before)(e.After)(e.Subst) e.1>;
+    (e.Before)(e.After)(e.Subst) t.1 e.1
+        = t.1 <SubstituteOnCond (e.Before)(e.After)(e.Subst) e.1>;
 }
 
 /*
@@ -378,13 +396,14 @@ ReplaceStackLevelWithNewPar {
         = 
         (assign (par e t.newparname)(e.Val))
         (<FoldStackIntoConf
-            <Substitute ((assign (var l t.name)((par e t.newparname)))e.LowerLevel) e.OtherStack>>);
+            <Substitute ((assign (var l t.name)((par e t.newparname)))e.LowerLevel) e.OtherStack>>
+        );
     (s.x)((e.LowerLevel)(e.UpperLevel)e.OtherStack) 
         = <ReplaceStackLevelWithNewPar (<Sub s.x 1>)((<Substitute (e.LowerLevel)e.UpperLevel>)e.OtherStack)>;
 }
 
 GenerateTrivialMGUs {
-     = ;
+    /* EMPTY */ = /* EMPTY */;
     (assign t.par (e.Expr)) e.Rest = (assign t.par (t.par)(e.Expr)) <GenerateTrivialMGUs e.Rest>;
 }
 
@@ -406,14 +425,31 @@ FormatUnification {
                                 (ToUnify (e.Bottom1)(<Substitute ((assign t.parname2 t.STop2)) e.Bottom2>))
                             ))()>;
 */
-
-    (e.Conf1)(e.Conf2)
+    (e.Eqs1)(e.Eqs2)(e.Conf1)(e.Conf2)
     , <FreshIndex 'pare_ind'> : s.newpar
-        =
-        <MGUAssoc ((par e s.newpar))
-                            ((assign (par e s.newpar)
-                                (ToUnify (e.Conf1)(e.Conf2))
-                            ))()>; 
+    , <MGUAssoc 
+        ((par e s.newpar)) /* Обобщенное выражение пока тривиально. */
+        (
+            (assign (par e s.newpar)
+            (ToUnify (e.Conf1)(e.Conf2))
+            )
+        )
+        (/* Список подстановок в параметры обобщенного выражения пока пуст. */)
+        > : 
+        {
+        (False)(False) = False;
+        (e.Pattern)(e.MGUs)
+        , e.Eqs1 : e.OtherEqs1 (Generic e.GenEqs1)
+        , <GenerateNewEquations (/* NO Eqs */)(/* NO NegEqs */)(e.Eqs1)(e.Eqs2)(e.Pattern)e.MGUs> : (e.PosNewEqs)(e.NegNewEqs)
+        , <MergeFreeParameters <PushUnaryPars (e.GenEqs1 e.PosNewEqs)(e.Pattern)(e.MGUs)>>
+            : (e.NewPattern)(e.NewMGUs)(e.EqMerging) 
+        , e.Eqs2 : 
+            { e.SomeEqs (Generic t.AtLeastOneEq e.GenEqs)
+                = <UseEqLemmas (t.AtLeastOneEq e.GenEqs)(e.NewPattern)(e.NewMGUs)>(e.EqMerging);
+            e.NoGenEqs
+                = (e.NewPattern)(e.NewMGUs)(e.EqMerging);
+            };
+        };
 
 /*
     (assign t.parname1 t.STop1)(e.Bottom1)(assign t.parname2 t.STop2)(e.Bottom2),
@@ -425,11 +461,52 @@ FormatUnification {
         = (e.Pattern)(<SubstituteInMGUs ((assign t.parname1 t.STop1)(assign t.parname2 t.STop2))e.MGUs>);*/
 }
 
+/*
+    Попытка заменить обобщение вложением, используя уравнения.
+    Вход - (уравнения)(обобщенное выражение)(пары подстановок).
+    Выход - (обобщенное выражение)(пары подстановок).
+*/
+UseEqLemmas {
+    (e.Eqs)(e.Pattern)(e.MGUs)
+        = <UnfoldMainEq ((e.Pattern)(e.Eqs))(Expression Undriven (0) (e.MGUs))>;
+}
+
+PushUnaryPars {
+    ((AreEqual (s.Log)(e.1 t.par t.1 e.Expr e.2)(e.1 t.1 e.Expr t.par e.2))e.Eqs)(e.Pattern)(e.MGUs)
+        = <PushUnaryPars (e.Eqs)(<ApplyEquationToPush ((t.par t.1 e.Expr)(t.1 e.Expr t.par)) e.Pattern>)(e.MGUs)>;
+    (t.Other e.Eqs)(e.Pattern)(e.MGUs)
+        = <PushUnaryPars (e.Eqs)(e.Pattern)(e.MGUs)>;
+    (/* EMPTY */)(e.Pattern)(e.MGUs)
+        = (e.Pattern)(e.MGUs);
+}
+
+ApplyEquationToPush {
+    ((t.par e.Expr)(e.Expr t.par))e.BeforeBr ('*' e.InBr)e.OutBr
+        = <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par))e.BeforeBr>
+        ('*'<ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par))e.InBr>)
+        <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par))e.OutBr>;
+    ((t.par e.Expr)(e.Expr t.par))e.BeforeCall (call t.fname (args (arg e.Arg)))e.OutCall
+        = <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par))e.BeforeCall>
+        (call t.fname (args (arg <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par))e.Arg>)))
+        <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par))e.OutCall>;
+    ((t.par e.Expr)(e.Expr t.par)) e.1 (par e t.name) e.Expr e.Syms t.par e.2
+    , e.Expr e.Syms : e.Syms e.Expr
+    , <Putout 2 'Unary parameter is pushed:'>
+    <Putout 2 e.1 (par e t.name) e.Expr e.Syms t.par e.2 ' to ' e.1 (par e t.name) t.par e.Expr e.Syms e.2> : /* NOTHING */
+        = e.1 (par e t.name) <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par)) t.par e.Expr e.Syms e.2>;
+    ((t.par e.Expr)(e.Expr t.par)) e.1 t.par e.Expr e.Syms (par e t.name) e.2
+    , e.Expr e.Syms : e.Syms e.Expr
+    , <Putout 2 'Unary parameter is pushed:'>
+    <Putout 2 e.1 t.par e.Expr e.Syms (par e t.name) e.2 ' to ' e.1 e.Expr e.Syms t.par (par e t.name) e.2> : /* NOTHING */
+        = e.1  e.Expr e.Syms t.par <ApplyEquationToPush ((t.par e.Expr)(e.Expr t.par)) (par e t.name) e.2>;
+    (e.Eq)e.Other = e.Other;
+}
+
 SubstituteInMGUs {
-    (e.Subst) = ;
+    (e.Subst) = /* EMPTY */;
     (e.Subst)(assign t.par (e.Val1)(e.Val2)) e.Rest
         = (assign t.par (<Substitute (e.Subst) e.Val1>)(<Substitute (e.Subst) e.Val2>))
-            <SubstituteInMGUs (e.Subst)e.Rest>;
+        <SubstituteInMGUs (e.Subst)e.Rest>;
 }
 
 /*
@@ -439,78 +516,293 @@ SubstituteInMGUs {
 */
 AnalyzeMGUResults {
 /* 0. Обобщение тривиально. */
-    t.SuccessorName t.UpperNodeName (e.UpperConf)((par e t.name))(e.MGUs)(e.EquationsFromMerging) = Driven;
+    t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.LowerEqs)(e.UpperConf)((par e t.name))(e.MGUs)(e.EquationsFromMerging) = Driven;
+*    t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.LowerEqs)(e.UpperConf)False e.1 = Driven;
 
-/* 1. Обобщение снизу. */
-    t.SuccessorName t.UpperNodeName (e.UpperConf)(e.Pattern)(e.MGUs)(e.EquationsFromMerging),
-        <IfEquivalentConf ()(e.UpperConf)(e.Pattern)> : (e.Subs),
-        <SplitMGUs 1 e.MGUs> : e.Assignments,
-	<DeleteTrivialSubs (e.Assignments)(e.Subs)e.Pattern> : (e.CheckedSubs) e.CheckedPattern 
-            =
-                    <Putout 2 'Generalized downwards: 't.SuccessorName' and 't.UpperNodeName' with upper config'>
-                    <Putout 2 <ConvertPrefal e.UpperConf>>
-                    <Putout 2>
-                    <Putout 2 'Generalized Pattern: '>
-                    <Putout 2 <ConvertPrefal e.CheckedPattern>>
-                    <Putout 2 'Generalized MGUs: 'e.Assignments>
-                    <Putout 2 'Generalized Equations: 'e.EquationsFromMerging>
-                    <Putout 2>
-                    <Putout 2 '*****************************************************************'>
-                    <Putout 2>
-                    (Generalized t.SuccessorName (<Put 2 Looped To t.UpperNodeName With e.CheckedSubs>) 
-                    <ExtractStackAndConf e.CheckedPattern>
-                    <GatherChildrenInfo  () () 
-                        <GenerateChildrenOfGenNode (e.EquationsFromMerging)t.SuccessorName 1
-                             e.Assignments
-                        >
-                    >
-                    );
+/* 1. Вложение. */
+    t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.LowerEqs)(e.UpperConf)(e.Pattern)(e.MGUs)(e.EquationsFromMerging)
+    , <IfEquivalentConf (/*No substitutions for now */)(e.UpperConf)(e.Pattern)> : (e.Subs)
+    , <SplitMGUs 1 e.MGUs> : e.Assignments
+    , <DeleteTrivialSubs (e.Assignments)(e.Subs)e.Pattern> : (e.CheckedSubs) e.CheckedPattern
+    , <GenerateNewEquations ()()(e.UpperEqs)(e.LowerEqs)(e.Pattern)e.MGUs> : (e.Pos)(e.NSNeg)
+    , <ScreenNegatives Init e.NSNeg> : e.Neg
+        =
+        <Putout 2 '================================================================================='>
+        <Putout 2 '  FOLDING ATTEMPT: 't.SuccessorName' and 't.UpperNodeName' with upper config'>
+        <Putout 2 '    '<ConvertPrefal e.UpperConf>>
+        <Putout 2>
+        <Putout 2 '  Generalized Pattern: '>
+        <Putout 2 '    '<ConvertPrefal e.CheckedPattern>>
+        <Putout 2 '  Generalized MGUs: '<AddNewLines e.MGUs>>
+        <Putout 2 '  Generalized Equations: '<AddNewLines e.EquationsFromMerging e.Pos e.Neg>>
+        <Putout 2 '********************************************************************************'>
+        <Putout 2>
+        (Generalized 
+            t.SuccessorName 
+            (<Put 2 Looped To t.UpperNodeName With e.CheckedSubs and (Generic e.Pos e.EquationsFromMerging)(Negative e.Neg)>) 
+        <ExtractStackAndConf e.CheckedPattern>
+        <GatherChildrenInfo  (/* EMPTY */) (/* EMPTY */) 
+            <GenerateChildrenOfGenNode <SortNegPosEqs (e.EquationsFromMerging)()> t.SuccessorName 1
+            e.Assignments
+            >
+        >
+        );
 /* 2. Обобщение сверху. */
-    t.SuccessorName t.UpperNodeName (e.UpperConf)(e.Pattern)(e.MGUs)(e.EquationsFromMerging),
-        <SplitMGUs 0 e.MGUs> : e.Assignments,
-	<DeleteTrivialSubs (e.Assignments)()e.Pattern> : (e.CheckedMGUs) e.CheckedPattern,
-        <GenerateNewEquations e.MGUs> : e.NewEquations =
-                    <Putout 2 'Generalized upwards: 't.SuccessorName' and 't.UpperNodeName' with upper config'>
-                    <Putout 2 <ConvertPrefal e.UpperConf>>
-                    <Putout 2>
-                    <Putout 2 'Generalized Pattern: '>
-                    <Putout 2 <ConvertPrefal e.CheckedPattern>>
-                    <Putout 2 'Generalized MGUs: 'e.MGUs>
-                    <Putout 2 'Generalized Equations: 'e.EquationsFromMerging e.NewEquations>
-                    <Putout 2>
-                    <Putout 2 '*****************************************************************'>
-                    <Putout 2>
-                    (Generalized t.UpperNodeName (UpperGeneralization With (e.EquationsFromMerging e.NewEquations)) <ExtractStackAndConf e.CheckedPattern>
-                    <GatherChildrenInfo  () () 
-                        <GenerateChildrenOfGenNode (e.EquationsFromMerging e.NewEquations) t.UpperNodeName 1
-                             e.Assignments
-                        >
-                    >
-                    );
+    t.SuccessorName t.UpperNodeName (e.UpperEqs)(e.LowerEqs)(e.UpperConf)(e.Pattern)(e.MGUs)(e.EquationsFromMerging)
+    , <SplitMGUs 0 e.MGUs> : e.Assignments
+    , <DeleteTrivialSubs (e.Assignments)()e.Pattern> : (e.CheckedMGUs) e.CheckedPattern
+    , <GenerateNewEquations ()()(e.UpperEqs)(e.LowerEqs)(e.Pattern)e.MGUs> : (e.Pos)(e.Neg)
+        =
+        <Putout 2 '================================================================================='>
+        <Putout 2 '  GENERALIZED UPWARDS: 't.SuccessorName' and 't.UpperNodeName' with upper config'>
+        <Putout 2 '    '<ConvertPrefal e.UpperConf>>
+        <Putout 2>
+        <Putout 2 '  Generalized Pattern: '>
+        <Putout 2 '    '<ConvertPrefal e.CheckedPattern>>
+        <Putout 2 '  Generalized MGUs: '<AddNewLines e.MGUs>>
+        <Putout 2 '  Generalized Equations: '<AddNewLines e.EquationsFromMerging e.Pos e.Neg>>
+        <Putout 2>
+        <Putout 2 '*********************************************************************************'>
+        <Putout 2>
+        (Generalized t.UpperNodeName (UpperGeneralization With ((Generic e.EquationsFromMerging e.Pos)(Negative e.Neg))) <ExtractStackAndConf e.CheckedPattern>
+        <GatherChildrenInfo  (/* EMPTY */) (/* EMPTY */) 
+            <GenerateChildrenOfGenNode (e.EquationsFromMerging e.Pos)(e.Neg) t.UpperNodeName 1
+                e.Assignments
+            >
+        >
+        );
 }
 
-/* (assign (e.pardata)(e.Val1)(e.Val2))^* => (AreEqual (('T') e.1)(('T') e.2)) */
+MayBeEmpty {
+    (t.sort e e.data) = 'T';
+    t.Other = 'F';
+}
+
+SortNegPosEqs {
+    (e.PosEqs (Not t.Clash) e.Other)(e.Neg)
+        = <SortNegPosEqs (e.PosEqs e.Other)(e.Neg (OR ('T')t.Clash))>;
+    (e.Pos)(e.Neg) = (e.Pos)(e.Neg); 
+}
+
+NegativeLinear {
+    (par t.type t.name) e.N1 (OR (s.Log)(((par t.type t.name)) to (e.1 t.Term e.2))) e.N2
+    , <MayBeEmpty t.Term> : 'F'
+    , <IsInStructure t.type t s> :
+        {'F'
+            = (OR (s.Log)(((par t.type t.name)) to (e.1 t.Term e.2))) 
+                <NegativeLinear (par t.type t.name) e.N2>;
+        'T'
+        , e.1 e.2 : 
+            {t.s e.x
+                = <NegativeLinear (par t.type t.name) e.N2>;
+            /* EMPTY */
+                = (OR 
+                    ('D')
+                    (((par t.type t.name))
+                        to 
+                        ((var e (t.Term <FreshIndex 'vare_ind'>)) t.Term (var e (t.Term <FreshIndex 'vare_ind'>))))
+                    )<NegativeLinear (par t.type t.name) e.N2>;
+            };
+        };
+    t.par e.Other = /* EMPTY */;
+}
+
+/* (assign (e.pardata)(e.Val1)(e.Val2))^* => (AreEqual ('F')(e.1)(e.2)) */
 GenerateNewEquations {
-    e.MGUs1 (assign (par e t.name)()(s.Sym))e.MGUs2 
-            =
-            (AreEqual ('F')((par e t.name) s.Sym)(s.Sym(par e t.name))) 
-            <GenerateNewEquations e.MGUs1 e.MGUs2>;
-/* 16.12.16. Добавлено 2 правила. */ 
- e.MGUs1 (assign (par e t.name)()((par s t.name2)))e.MGUs2,
-    <IsInStructure (par s t.name2) e.MGUs1 e.MGUs2> : 'T' 
-            =
-            (AreEqual ('F')((par e t.name) (par s t.name2))((par s t.name2)(par e t.name))) 
-            <GenerateNewEquations e.MGUs1 e.MGUs2>;
-    e.MGUs1 (assign (par e t.name)()((par t t.name2)))e.MGUs2,
-    <IsInStructure (par t t.name2) e.MGUs1 e.MGUs2> : 'T'
-            = 
-            (AreEqual ('F')((par e t.name) (par t t.name2))((par t t.name2)(par e t.name))) 
-            <GenerateNewEquations e.MGUs1 e.MGUs2>;
-    e.MGUs1 (assign (par t t.name)(s.Sym1)(s.Sym2))e.MGUs2
-            = 
-            (AreEqual ('F')((weval e <FreshIndex 'wevale_ind'>)(par t t.name)(weval e <FreshIndex 'wevale_ind'>))(s.Sym1 s.Sym2)) 
-            <GenerateNewEquations e.MGUs1 e.MGUs2>;
-    e.MGU = ;
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 (assign (par e t.name)()(e.Expr))e.MGUs2 
+    , <IfConstant e.Expr> : 'T'
+    , <WordRoot e.Expr> : e.Root
+    , (AreEqual ('F')((par e t.name) e.Root)(e.Root (par e t.name))) : t.NewEq
+    , (OR ('D')
+            (((par e t.name)) to 
+            (<GenerateFiniteCondition <CountLength e.Expr>>))
+        ) : t.NewNeq
+        =
+        <GenerateNewEquations (e.GenEqs t.NewEq)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 e.MGUs2>;
+    
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern)e.MGUs1 (assign (par e t.name)()((par t.type t.name2)))e.MGUs2
+    , e.LowerEqs : e.L1 (Negative e.LNeg) e.L2
+    , <NegativeLinear (par t.type t.name2) e.LNeg > : e.LinearNeg
+    , <SubstituteInNegative ((assign (par t.type t.name2)((par e t.name)))) e.LinearNeg> : e.NewLNeg
+    , <IfThenElse
+        <IsInStructure t.type t s>
+        ((OR ('D')
+            (((par e t.name)) to 
+            (<GenerateFiniteCondition 1>))
+        ))
+        /* EMPTY */
+    > : e.NewNeg
+    , <IfThenElse 
+        <IsInStructure (par t.type t.name2) e.Pattern /* e.MGUs1 e.MGUs2 */>
+        ((AreEqual ('F')((par e t.name) (par t.type t.name2))((par t.type t.name2)(par e t.name))))
+        /* EMPTY */
+    > : e.NewEq
+        =
+        <GenerateNewEquations (e.GenEqs e.NewEq)(e.GenNeqs e.NewLNeg)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 e.MGUs2>;
+
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern)e.MGUs1 (assign (par e t.name)()(e.HighlyParameterized))e.MGUs2
+    , e.LowerEqs : e.L1 (Negative e.LNeg) e.L2
+    , <GetNewNegativesFromLin (par e t.name)(e.LNeg)(e.LNeg)e.HighlyParameterized> : e.NewNeg
+    , <GetNewEndmarkNegatives (par e t.name)(e.HighlyParameterized)(e.LNeg)e.NewNeg> : e.EndNeg
+        =
+        <GenerateNewEquations (e.GenEqs)(e.GenNeqs e.NewNeg e.EndNeg)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 e.MGUs2>;
+        
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 (assign (par e t.name)((par e t.name1))(e.HighlyParameterized))e.MGUs2
+    , e.UpperEqs : e.U1 (Negative e.UNeg) e.U2 (Generic e.UGen)
+    , e.LowerEqs : e.L1 (Negative e.LNeg) e.L2 (Generic e.LGen)
+    , <NegativeLinear (par e t.name1) e.UNeg> : e.LinNeg
+    , <GetNewNegativesFromLin (par e t.name)(e.LinNeg)(e.LNeg)e.HighlyParameterized> : e.NewNeg
+    , <GetNewCommuting (par e t.name)((par e t.name1))(e.UGen)(e.HighlyParameterized)(e.LGen)> : e.NewCommute
+        = <GenerateNewEquations (e.GenEqs e.NewCommute)(e.GenNeqs e.NewNeg)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 e.MGUs2>;        
+ /*   
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 (assign (par e t.name)((par e t.name1))(e.0(par e t.name2)e.1))e.MGUs2
+    , e.0 e.1 : t.x e.xx
+    , <IfBounded e.0 e.1> : 'T' 
+    , e.UpperEqs : e.U1 (Negative e.UNeg) e.U2
+    , e.LowerEqs : e.L1 (Negative e.LNeg) e.L2
+    , <FiniteCounter (par e t.name2) e.LNeg> : s.2
+    , <IfThenElse
+        <LogAnd 
+            <AllPositive
+                <FiniteCounter (par e t.name1) e.UNeg>
+                s.2>
+            <MyIfNotLess <CurrentIndex 'MaxConst'><MyAdd s.2 <CountLength e.xx>>>
+            >
+        
+         ((OR ('D')(((par e t.name)) to (<GenerateFiniteCondition <MyAdd s.2 <CountLength t.x e.xx>>>))))
+        /* EMPTY */ 
+/*    > : e.NewNeg
+    , ((par e t.name) to (e.0(par e t.name2)e.1)) : t.NotNegClash
+    , <SetIntersect
+        (<NotCondition t.NotNegClash e.UNeg>)(<NotCondition t.NotNegClash e.LNeg>)
+    > : (e.OtherNewNeg)
+        = 
+        <GenerateNewEquations (e.GenEqs)(e.GenNeqs e.NewNeg e.OtherNewNeg)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 e.MGUs2>;*/
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 (assign (par e t.name)(e.Parameterized1 (par e t.name1)e.Parameterized2)
+        (e.HighlyParameterized))e.MGUs2
+    , e.UpperEqs : e.U1 (Negative e.UNeg) e.U2
+    , e.LowerEqs : e.L1 (Negative e.LNeg) e.L2
+    , <NegativeLinear (par e t.name1) e.UNeg> : e.LinNeg
+    , <GetNewNegativesFromLin (par e t.name)(e.LinNeg)(e.UNeg)e.Parameterized1 (par e t.name1)e.Parameterized2> : e.AuxNeg
+    , <GetNewNegativesFromLin (par e t.name)(e.AuxNeg)(e.LNeg)e.HighlyParameterized> : e.NewNeg
+        = <GenerateNewEquations (e.GenEqs)(e.GenNeqs e.NewNeg)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGUs1 e.MGUs2>;        
+
+    (e.GenEqs)(e.GenNeqs)(e.UpperEqs)(e.LowerEqs)(e.Pattern) e.MGU = (e.GenEqs)(<NegativeCleaning e.GenNeqs>);
+}
+
+GetNewCommuting {
+    (par e t.name)((par e t.name1))(e.UGen)(e.HighlyParameterized)(e.LGen)
+    , e.UGen : (AreEqual e.Log ((par e t.name1) e.Expr)(e.Expr (par e t.name1)))
+        = <GetNewCommuting Started (e.Expr)(par e t.name)(e.HighlyParameterized)(e.LGen)>;
+    (par e t.name)((par e t.name1))(e.UGen)(e.HighlyParameterized)(e.LGen) = ;
+    Started (e.Expr)(par e t.name)(e.Expr e.HighlyParameterized)(e.LGen)
+        = <GetNewCommuting Started (e.Expr)(par e t.name)(e.HighlyParameterized)(e.LGen)>;
+    Started (e.Expr)(par e t.name)((par e t.name1) e.HighlyParameterized)(e.LGen)
+    , e.LGen : e.LGen1 (AreEqual (s.Log) ((par e t.name1) e.Expr)(e.Expr (par e t.name1))) e.LGen2
+        = <GetNewCommuting Started (e.Expr)(par e t.name)(e.HighlyParameterized)(e.LGen)>;
+    Started (e.Expr)(par e t.name)( )(e.LGen) = (AreEqual ('F')((par e t.name)e.Expr)(e.Expr(par e t.name)));
+    Started (e.Expr)(par e t.name)(e.HighlyParameterized)(e.LGen) = ;
+}
+
+$ENTRY NegativeCleaning {
+    e.1 t.1 e.2 t.1 e.3 = <NegativeCleaning e.1 t.1 e.2 e.3>;
+    e.1 (OR (s.Log) e.21 t.Clash e.22) e.2 (OR (s.Log2) t.Clash) e.3
+        = <NegativeCleaning e.1 e.2 (OR (s.Log2) t.Clash) e.3>;
+    e.1 (OR (s.Log2) t.Clash) e.2 (OR (s.Log) e.21 t.Clash e.22) e.3
+        = <NegativeCleaning e.1 (OR (s.Log2) t.Clash)e.2 e.3>;
+    e.1 (OR (s.Log)) e.2 = <NegativeCleaning e.1 e.2>;
+    e.Z = e.Z;
+}
+/* ВВЕСТИ ДОПОЛНИТЕЛЬНЫЕ КОНЦЕВЫЕ УСЛОВИЯ!!!! */
+GetNewEndmarkNegatives { 
+    t.par (e.Expression)(e.LNeg)(OR (s.Log) ((t.par) to ((var e t.name1) e.Const t.2 t.1 (var e t.name2)))) e.Other
+    , <IfBounded e.Const t.2 t.1> : 'T'
+    , <GenerateFreshPRTC ((e.Expression) to ((var e t.name1) e.Const t.2))> : t.NegativePRTC
+    , <AddPRTCNegativeInfo t.NegativePRTC e.LNeg> : t.NPRTC1
+    , <Putout 1 'Driving GENERALIZING ENDMARK negative clash No. '<FreshIndex 'prtc_ind'>><Putout 1 ((e.Expression) to ((var e t.name1) e.Const t.2))> : 
+    , <Drive 'T' ( ) <ClashLeft 'T' 0 t.NPRTC1>>
+        : { 
+            /* EMPTY */
+                = (OR ('T')((t.par) to ((var e t.name1) e.Const t.2)))
+                <GetNewEndmarkNegatives t.par (e.Expression)(e.LNeg)(OR (s.Log)((t.par) to ((var e t.name1) e.Const t.2 (var e t.name2)))) e.Other>;
+            e.PRTCsWithRestrictions
+                = <GetNewEndmarkNegatives t.par (e.Expression)(e.LNeg)(OR (s.Log)((t.par) to ((var e t.name1) e.Const t.2 (var e t.name2)))) e.Other>;
+            };
+    t.par (e.Expression)(e.LNeg) t.SomeOtherNegative e.Other =<GetNewEndmarkNegatives t.par (e.Expression)(e.LNeg) e.Other>;
+    t.par (e.Expression)(e.LNeg) = ;
+}
+
+/*!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!*/
+
+GetNewNegativesFromLin {
+    t.ThisPar((OR (s.Log)((t.par) to (e.Pattern))) e.TheseNeg)(e.AllNeg) e.Expr
+    , <GenerateFreshPRTC ((e.Expr) to (e.Pattern))> : t.NegativePRTC
+    , <AddPRTCNegativeInfo t.NegativePRTC e.AllNeg> : t.NPRTC1
+    , <Putout 1 'Driving GENERALIZING negative clash No. '<FreshIndex 'prtc_ind'>> : 
+    , <Drive s.Log ( ) <ClashLeft s.Log 0 t.NPRTC1>>
+        : { 
+            /* EMPTY */
+                = (OR (s.Log)((t.ThisPar) to (e.Pattern)))<GetNewNegativesFromLin t.ThisPar(e.TheseNeg)(e.AllNeg)e.Expr>;
+            e.PRTCsWithRestrictions
+                = <GetNewNegativesFromLin t.ThisPar(e.TheseNeg)(e.AllNeg)e.Expr>;
+            };
+    t.ThisPar(t.ComplexNegative e.TheseNeg)(e.AllNeg)e.Expr
+        = <GetNewNegativesFromLin t.ThisPar (e.TheseNeg)(e.AllNeg)e.Expr>;
+    t.ThisPar (/* EMPTY */)(e.AllNeg)e.Expr
+        = /* EMPTY */;
+}
+
+WordRoot {
+    t.1 e.2 e.3
+    , t.1 e.2 e.3 : e.3 t.1 e.2
+        = t.1 e.2;
+}
+
+NotCondition {
+    ((par e t.name) to (e.Finite01 (par e t.newname)e.Finite02))
+    e.1 (OR (s.Log)(((par e t.name)) to ((var e t.freeName0) e.Finite2 (var e t.freeName1)))) e.2
+    , <IfBounded e.Finite2> : 'T'
+    , <NoClash e.Finite01 (par e t.newname)e.Finite02 (e.Finite2)> : 'T'
+         = (OR (s.Log)(((par e t.name)) to ((var e t.freeName0)e.Finite2(var e t.freeName1)))) 
+         <NotCondition ((par e t.name) to (e.Finite01 (par e t.newname)e.Finite02)) e.2>;
+    (e.Cond) e.Other = /* EMPTY */;
+}
+
+NoClash {
+    e.1 (par e t.newname) e.2 (e.3)
+    , e.1 e.2 : e.01 (par e.pardata) e.02
+        = 'F';
+    e.1 e.2 e.3 (e.2) = 'F';
+    t.1 e.1 (par e e.data) e.3 (e.2 t.1 e.1) = 'F';
+    e.1 (par e e.data) t.2 e.3 (t.2 e.3 e.2) = 'F';
+    e.Z = 'T';
+    }
+
+AllPositive {
+ e.1 Null e.2 = 'F';
+ e.Z = 'T';
+}
+
+FiniteCounter {
+    (par e t.name)
+    (OR (s.Log)(((par e t.name)) to ((var e t.freeName0)(var t t.freeName1)e.Z))) e.OtherNeg
+        = <FiniteCounter Started 1 ((par e t.name) e.OtherNeg) e.Z>;
+    (par e t.name) t.Other e.Z = <FiniteCounter (par e t.name) e.Z>;
+    (par e t.name) /* EMPTY */ = Null;
+    Started s.Counter (e.SavedData)(var e t.name)
+    ,  <MyMax s.Counter <Add <CurrentIndex 'MaxConst'> 1>> :
+        { s.Counter = Null;
+          s.Other = s.Counter;
+        };
+    Started s.Counter (e.SavedData)(var e t.name)(var t t.name1) e.Z
+        = <FiniteCounter Started <Add s.Counter 1> (e.SavedData) e.Z>;
+    Started s.Counter (e.SavedData)e.Other = <FiniteCounter e.SavedData>;
+}
+
+GenerateFiniteCondition {
+    Null = ;
+    0 = (var e <FreshIndex 'vare_ind'>)(var t <FreshIndex 'vare_ind'>)(var e <FreshIndex 'vare_ind'>);
+    s.Other = (var e <FreshIndex 'vare_ind'>)(var t <FreshIndex 'vare_ind'>)<GenerateFiniteCondition <Sub s.Other 1>>;
 }
 
 /*
@@ -540,8 +832,8 @@ DeleteTrivialSubs {
 		>; 
 */
 
-        (e.asgnts)()e.Pattern = (e.asgnts)e.Pattern;
-	(e.asgnts) (e.subs)e.Pattern = (e.subs) e.Pattern;
+    (e.asgnts)(/* EMPTY */) e.Pattern = (e.asgnts)e.Pattern;
+    (e.asgnts) (e.subs)e.Pattern = (e.subs) e.Pattern;
 }
 
 /*
@@ -562,7 +854,7 @@ GatherChildrenInfo {
    */
 GenerateChildrenOfGenNode {
 /*1. Все дети по let порождены. */
-	(e.NewEquations) t.UpperNodeName t.Counter =;
+    (e.NewEquations)(e.NegEquations) t.UpperNodeName t.Counter = /* EMPTY */;
 /* 2. Очередной дочерний узел порождается: в нем нет сужений, let-выражений, есть только стек и обшая конфигурация. */
 /*
     	(e.NewEquations) (e.UpperNodeName) t.Counter (assign (par e.pardata)(e.Val))e.Others,
@@ -575,16 +867,15 @@ GenerateChildrenOfGenNode {
             >
             <GenerateChildrenOfGenNode (e.NewEquations)(e.UpperNodeName) <MyInc t.Counter> e.Others>; 
 */
-
-	(e.NewEquations) (e.UpperNodeName) t.Counter (assign (par e.pardata)(e.Val))e.Others,
-        <GenerateNewNode (e.UpperNodeName t.Counter)> : t.BlankNode,
-        <PutNodeNewEqsToOld <PutNodeNewEqs t.BlankNode e.NewEquations>> : t.NewChildNode,
-        <ExtractStackAndConf e.Val> : (e.ChildConf)(e.ChildStack) =
-            <CheckForCalls
-                ((assign (par e.pardata) (e.Val))
-                <PutNodeStack <PutNodeConfig t.NewChildNode e.ChildConf> e.ChildStack>)
-            >
-            <GenerateChildrenOfGenNode (e.NewEquations)(e.UpperNodeName) <MyInc t.Counter> e.Others>;
+    (e.NewEquations)(e.NegEquations) (e.UpperNodeName) t.Counter (assign (par e.pardata)(e.Val))e.Others
+    , <GenerateNewNode (e.UpperNodeName t.Counter)> : t.BlankNode
+    , <PutNodeNegEqs <PutNodeNewEqsToOld <PutNodeNewEqs t.BlankNode e.NewEquations>> e.NegEquations> : t.NewChildNode
+    , <ExtractStackAndConf e.Val> : (e.ChildConf)(e.ChildStack)
+        = <CheckForCalls
+            ((assign (par e.pardata) (e.Val))
+            <PutNodeStack <PutNodeConfig t.NewChildNode e.ChildConf> e.ChildStack>)
+        >
+        <GenerateChildrenOfGenNode (e.NewEquations)(e.NegEquations)(e.UpperNodeName) <MyInc t.Counter> e.Others>;
 }
 
 /* Проверка, не пуст ли стек у вновь порожденного узла. */
@@ -612,7 +903,7 @@ ExtractStackAndConf {
    s.Flag=1 => выбираем второе.
 */
 SplitMGUs {
-    s.Flag =;
+    s.Flag = /* EMPTY */;
     0 (assign (e.pardata)(e.Val1)(e.Val2)) e.MGUs = (assign (e.pardata)(e.Val1))<SplitMGUs 0 e.MGUs>;
     1 (assign (e.pardata)(e.Val1)(e.Val2)) e.MGUs = (assign (e.pardata)(e.Val2))<SplitMGUs 1 e.MGUs>;
 }
@@ -624,19 +915,19 @@ SplitMGUs {
 */
 StackForm4TurRel {
 /* 1. Весь стек обработан, на верхнем уровне вызовов не было. */
-    (e.NewForm)() = e.NewForm;
+    (e.NewForm)(/* EMPTY */) = e.NewForm;
 /* 2. Весь стек обработан, на верхнем уровне вызовы имелись. */
     (e.NewForm)(e.NewTerm) = e.NewForm;
 /* 3. Текущий слой стека исчерпан без формирования нового терма -- списка вызовов функций (на слое были только объектные выражения). */
-    (e.NewForm)()()e.OtherLevels = <StackForm4TurRel (e.NewForm ((Constant 0)))()e.OtherLevels>;
+    (e.NewForm)(/* EMPTY */)(/* EMPTY */)e.OtherLevels = <StackForm4TurRel (e.NewForm ((Constant 0)))()e.OtherLevels>;
 /* 4. Текущий слой стека исчерпан, сформирован список вызовов функций в нем. Помещаем этот список в плоскую форму и переходим к другому слою. */
-    (e.NewForm)(e.NewTerm)()e.OtherLevels = <StackForm4TurRel (e.NewForm (e.NewTerm))()e.OtherLevels>;
+    (e.NewForm)(e.NewTerm)(/* EMPTY */)e.OtherLevels = <StackForm4TurRel (e.NewForm (e.NewTerm))()e.OtherLevels>;
 /* 5. Вставляем имя функции в терм, перечисляющий все имена вызванных функций на слое. */
-    (e.NewForm)(e.NewTerm)((assign (var l t.name)((call (t.fname t.timestamp) e.call)))e.ThisLevel)e.OtherLevels = 
-        <StackForm4TurRel (e.NewForm)(<InsertNewFunName (t.fname t.timestamp) e.NewTerm>)(e.ThisLevel)e.OtherLevels>;
+    (e.NewForm)(e.NewTerm)((assign (var l t.name)((call (t.fname t.timestamp) e.call)))e.ThisLevel)e.OtherLevels
+        = <StackForm4TurRel (e.NewForm)(<InsertNewFunName (t.fname t.timestamp) e.NewTerm>)(e.ThisLevel)e.OtherLevels>;
 /* 6. Если очередная стековая переменная не есть вызов, игнорируем ее. */
-    (e.NewForm)(e.NewTerm)((assign (var l t.name)(e.NotCall))e.ThisLevel)e.OtherLevels = 
-        <StackForm4TurRel (e.NewForm)(e.NewTerm)(e.ThisLevel)e.OtherLevels>;
+    (e.NewForm)(e.NewTerm)((assign (var l t.name)(e.NotCall))e.ThisLevel)e.OtherLevels
+        = <StackForm4TurRel (e.NewForm)(e.NewTerm)(e.ThisLevel)e.OtherLevels>;
 }
 
 /*
@@ -644,8 +935,8 @@ StackForm4TurRel {
    t.NewName t.name^* => t.name^*
 */
 InsertNewFunName {
-	(t.fname t.timestamp1) e.Names1 (t.fname t.timestamp2) e.Names2 = e.Names1 (t.fname t.timestamp1) e.Names2;
-	t.fname e.Names = e.Names t.fname;
+    (t.fname t.timestamp1) e.Names1 (t.fname t.timestamp2) e.Names2 = e.Names1 (t.fname t.timestamp1) e.Names2;
+    t.fname e.Names = e.Names t.fname;
 }
 
 
@@ -667,19 +958,19 @@ EmbeddingConfs {
 			>
 		>; 
 */
-    ((e.Config)(e.Stack))((e.Config2)(e.Stack2))
+    ((e.Eqs)(e.Config)(e.Stack))((e.Eqs2)(e.Config2)(e.Stack2))
     , <SingleGapFHE (<Put 1 <StackForm4TurRel ()()e.Stack>>)
         <Putout 1 ' and '>
         <Put 1 <StackForm4TurRel ()()e.Stack2>>> : 
         { 'F' = 'F';
-            s.Depth
-            , <HomeomorphicEmb (<Put 1 e.Config>)<Putout 1 ' and '><Put 1 e.Config2>> :
-                {'F' = 'F';
-                'T'
-                , <ReplaceStackLevelWithNewPar (s.Depth)(e.Stack)> : (e.asg)(e.Bottom1)
-                , <ReplaceStackLevelWithNewPar (s.Depth)(e.Stack2)> : (e.asg2)(e.Bottom2)
-                    = s.Depth <HomeomorphicEmb (e.Bottom1)e.Bottom2>;
-                };
+        s.Depth
+        , <HomeomorphicEmb (<Put 1 e.Config>)<Putout 1 ' and '><Put 1 e.Config2>> :
+            {'F' = 'F';
+            'T'
+            , <ReplaceStackLevelWithNewPar (s.Depth)(e.Stack)> : (e.asg)(e.Bottom1)
+            , <ReplaceStackLevelWithNewPar (s.Depth)(e.Stack2)> : (e.asg2)(e.Bottom2)
+                = s.Depth <HomeomorphicEmb (e.Bottom1)e.Bottom2>;
+            };
         };
 }
 
@@ -691,7 +982,7 @@ EmbeddingConfs {
 
 SingleGapFHE {
     (((t.1 t.TS1) e.1) e.11) ((t.1 t.TS2) e.21) e.22 = <TurRelat (0)(e.11) e.22>; 
-	e.X = 'F';
+    e.X = 'F';
 }
 
 TurRelat {
@@ -700,7 +991,7 @@ TurRelat {
 }
 
 TurRelatAux {
-    (s.Depth)() e.2 = s.Depth;
+    (s.Depth)(/* EMPTY */) e.2 = s.Depth;
     (s.Depth)(((t.1 t.TS1) e.11) e.1)((t.1 t.TS2) e.12) e.2 = <TurRelatAux (<MyInc s.Depth>)(e.1)e.2>;
     (s.Depth)(e.1) e.2 = 'F';
 }
@@ -712,12 +1003,13 @@ TurRelatAux {
 */
 
 $ENTRY HomeomorphicEmb {
-    ()e.2 = 'T';
+    (/* EMPTY */)e.2 = 'T';
     (e.1) = 'F';
 /* 0. Равное вкладывается в равное. */
     (t.1)t.1 = 'T';
-/* 1. Два параметра одного типа всегда вкладываются друг в друга. */
-    ((par s.type e.par1))(par s.type e.par2) = 'T';
+/* 1. Два параметра или две переменные одного типа всегда вкладываются друг в друга. */
+    ((t.sort s.type e.par1))(t.sort s.type e.par2)
+        , par var weval : e.1 t.sort e.2 = 'T';
 /* 2. вызов f вкладывается в вызов f, если аргумент вкладывается в аргумент. */
     ((call t.fdata1 (args (arg e.call1))))(call t.fdata2 (args (arg e.call2)))
     , t.fdata1 : (t.fname t.TS1)
@@ -768,7 +1060,7 @@ KruskalAux2 {
 
 /* s.Log (e.1)e.2 */
 IfThenElse {
-    'T'(e.1) e.2 = <AAA>e.1;
+    'T'(e.1) e.2 = e.1;
     'F'(e.1) e.2 = e.2;
 }
 
@@ -780,20 +1072,20 @@ IfThenElse {
 */
 FHE4AllEqs {
 /* 1. Все уравнения исчерпаны. */
-	(t.EqGenComplexity)()(e.Eqs2) = 'T';
+    (t.EqGenComplexity)(/* EMPTY */)(e.Eqs2) = 'T';
 /*
    2. Если уравнение в первом аргументе имеет сложность меньше или равную ограничивающей, 
    оно должно вкладываться в какое-нибудь уравнение во втором аргументе. 
 */
-
-	(t.EqGenComplexity)((e.Equation1)e.OtherEqs1)(e.Eqs2), <MyIfNotLess t.EqGenComplexity <EqGenComplexity e.Equation1>>:'T' =
-		<LogAnd
-			<HomeomorphicEmb4Equations ((e.Equation1))e.Eqs2>
-			<FHE4AllEqs (t.EqGenComplexity)(e.OtherEqs1)(e.Eqs2)>
-		>;
+    (t.EqGenComplexity)((e.Equation1)e.OtherEqs1)(e.Eqs2)
+    , <MyIfNotLess t.EqGenComplexity <EqGenComplexity e.Equation1>> :'T'
+        = <LogAnd
+            <HomeomorphicEmb4Equations ((e.Equation1))e.Eqs2>
+            <FHE4AllEqs (t.EqGenComplexity)(e.OtherEqs1)(e.Eqs2)>
+        >;
 /* 3. Если уравнение в первом аргументе имеет более высокую сложность, его игнорируем. */
-	(t.EqGenComplexity)((e.Equation1)e.OtherEqs1)(e.Eqs2) =
-			<FHE4AllEqs (t.EqGenComplexity)(e.OtherEqs1)(e.Eqs2)>;
+    (t.EqGenComplexity)((e.Equation1)e.OtherEqs1)(e.Eqs2)
+        = <FHE4AllEqs (t.EqGenComplexity)(e.OtherEqs1)(e.Eqs2)>;
 }
 
 /*
@@ -803,23 +1095,23 @@ FHE4AllEqs {
    [Equation] [Equation]^* => s.Log
 */
 HomeomorphicEmb4Equations {
-	t.Eq  = 'F';
-	t.Eq1 t.Eq2 e.OtherEqs, 
-	t.Eq1 : (AreEqual ((e.CompLHS1)(e.LHS1))((e.CompRHS1)(e.RHS1))), 
-	t.Eq2 : (AreEqual ((e.CompLHS2)(e.LHS2))((e.CompRHS2)(e.RHS2))) =
-		<LogOr
-			<LogOr 
-				<LogAnd
-					<HomeomorphicEmb (e.LHS1)e.LHS2>
-					<HomeomorphicEmb (e.RHS1)e.RHS2>
-				>
-				<LogAnd
-					<HomeomorphicEmb (e.RHS1)e.LHS2>
-					<HomeomorphicEmb (e.LHS1)e.RHS2>
-				>
-			>
-			<HomeomorphicEmb4Equations t.Eq1 e.OtherEqs>
-		>;
+    t.Eq  = 'F';
+    t.Eq1 t.Eq2 e.OtherEqs
+    , t.Eq1 : (AreEqual ((e.CompLHS1)(e.LHS1))((e.CompRHS1)(e.RHS1)))
+    , t.Eq2 : (AreEqual ((e.CompLHS2)(e.LHS2))((e.CompRHS2)(e.RHS2)))
+        = <LogOr
+            <LogOr 
+                <LogAnd
+                    <HomeomorphicEmb (e.LHS1)e.LHS2>
+                    <HomeomorphicEmb (e.RHS1)e.RHS2>
+                >
+                <LogAnd
+                    <HomeomorphicEmb (e.RHS1)e.LHS2>
+                    <HomeomorphicEmb (e.LHS1)e.RHS2>
+                >
+            >
+            <HomeomorphicEmb4Equations t.Eq1 e.OtherEqs>
+        >;
 }
 
 /*
@@ -832,8 +1124,8 @@ HomeomorphicEmb4Equations {
 
 
 EqGenComplexity {
-	(AreEqual (s.Log)(e.LHS)(e.RHS))
-            = <MyAdd <SEGCompl e.LHS><SEGCompl e.RHS>>;
+    (AreEqual (s.Log)(e.LHS)(e.RHS))
+        = <MyAdd <SEGCompl e.LHS><SEGCompl e.RHS>>;
 }
 
 /*
@@ -841,11 +1133,11 @@ EqGenComplexity {
    [MultiSet] => [Card]
 */
 SEGCompl {
-	 = <MyZero>;
-	(weval e.Z) e.Other = Inf;
-	(par e.Z) e.Rest = <MyAdd 1 <SEGCompl e.Rest>>;
-        ('*'e.InBr) e.OutBr = <MyAdd <SEGCompl e.InBr><SEGCompl e.OutBr>>;
-        t.Other e.Rest = <SEGCompl e.Rest>;
+    /* EMPTY */ = <MyZero>;
+    (weval e.Z) e.Other = Inf;
+    (par e.Z) e.Rest = <MyAdd 1 <SEGCompl e.Rest>>;
+    ('*'e.InBr) e.OutBr = <MyAdd <SEGCompl e.InBr><SEGCompl e.OutBr>>;
+    t.Other e.Rest = <SEGCompl e.Rest>;
 }
 
 /*
@@ -858,20 +1150,20 @@ FindMaxContext {
 /*    (e.Pattern)((ToUnify ()())) = (e.Pattern)(); */
 
 /* 1a. Полностью одинаковые термы слева образуют общий контекст. */
-    (e.Pattern)((assign (e.Name)(ToUnify (t.1 e.1)(t.1 e.2)))) = 
-        <FindMaxContext 
+    (e.Pattern)((assign (e.Name)(ToUnify (t.1 e.1)(t.1 e.2))))
+        = <FindMaxContext 
             (<Substitute ((assign (e.Name)(t.1 (e.Name)))) e.Pattern>)
             ((assign (e.Name)(ToUnify (e.1)(e.2))))
         >;
 /* 1б. Полностью одинаковые термы справа образуют общий контекст. */
-    (e.Pattern)((assign (e.Name)(ToUnify (e.1 t.1)(e.2 t.1)))) = 
-        <FindMaxContext 
+    (e.Pattern)((assign (e.Name)(ToUnify (e.1 t.1)(e.2 t.1))))
+        = <FindMaxContext 
             (<Substitute ((assign (e.Name)((e.Name) t.1))) e.Pattern>)
             ((assign (e.Name)(ToUnify (e.1)(e.2))))
         >;
 /* 2. Одинаковые вызовы функций, если кроме этих функций на данном уровне ничего нет, также образуют общий контекст. */
-    (e.Pattern)((assign (e.Name)(ToUnify ((call t.fname (args (arg e.1))))((call t.fname (args (arg e.2))))))) = 
-        <FindMaxContext 
+    (e.Pattern)((assign (e.Name)(ToUnify ((call t.fname (args (arg e.1))))((call t.fname (args (arg e.2)))))))
+        = <FindMaxContext 
             (<Substitute ((assign (e.Name)((call t.fname (args (arg (e.Name))))))) e.Pattern>)
             ((assign (e.Name)(ToUnify (e.1)(e.2))))
         >;
@@ -898,30 +1190,35 @@ FindMaxContext {
 
 $ENTRY MGUAssoc {
 /* 1. Обобщать больше нечего. */
-    (e.Pattern)()(e.MGUs) = (e.Pattern)(e.MGUs); 
+    (e.Pattern)()(e.MGUs)
+    , <WeightMGU (0) e.MGUs> :
+        {/* Nil = (False)(False); */
+        e.1 = (e.Pattern)(e.MGUs);
+        };
 /* 2. Обобщаются равные выражения --- это выражение просто подставляется в шаблон вместо параметра. */
-    (e.Pattern)(e.Other1 (assign (par e t.Name)(ToUnify t.val t.val))e.Other)(e.MGUs) =
-        <MGUAssoc (<Substitute ((assign (par e t.Name)t.val)) e.Pattern>)(e.Other1 e.Other)(e.MGUs)>;
+    (e.Pattern)(e.Other1 (assign (t.sort e t.Name)(ToUnify t.val t.val))e.Other)(e.MGUs)
+        = <MGUAssoc (<Substitute ((assign (t.sort e t.Name)t.val)) e.Pattern>)(e.Other1 e.Other)(e.MGUs)>;
 /* 3. Обобщаются термы, вызовы, параметры либо выражения в скобках --- передача управления MGUObject. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Object1)(t.Object2)))e.Other)(e.MGUs),
-    <HomeomorphicEmb (t.Object1) t.Object2> : 'T' = 
-            <MGUAssoc
-                <MGUObject (e.Pattern)((assign (par e t.Name)(ToUnify (t.Object1)(t.Object2)))e.Other)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Object1)(t.Object2)))e.Other)(e.MGUs)
+    , <HomeomorphicEmb (t.Object1) t.Object2> : 'T'
+        = <MGUAssoc
+                <MGUObject (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Object1)(t.Object2)))e.Other)
                     (e.MGUs)
                 >
-            >;
+        >;
 /* 4. Пустое выражение обобщается с непустым --- до e-выражения. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify ()(e.Object)))e.Other)
-        (e.MGUs) = 
-            <MGUAssoc <IntroduceEMGU (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)(assign (par e t.Name)()(e.Object))(e.Pattern)(e.Other)(e.MGUs)
-            >>;
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify ()(e.Object)))e.Other)(e.MGUs)
+        = <MGUAssoc 
+            <IntroduceEMGU (<FindAllPredInPattern ()()(t.sort e t.Name)e.Pattern>)(assign (t.sort e t.Name)()(e.Object))(e.Pattern)(e.Other)(e.MGUs)>
+        >;
 /* 5. Выражение и терм обобщаются успешно, только если выражение вкладывается в этот терм. В этом случае они обобщаются до e-переменной. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object)))e.Other)(e.MGUs),
-	<HomeomorphicEmb (t.Object1 e.Expr1)t.Object> : 'T' = 
-            <MGUAssoc <IntroduceEMGU (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)(assign (par e t.Name)(t.Object1 e.Expr1)(t.Object))(e.Pattern)(e.Other)(e.MGUs)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object)))e.Other)(e.MGUs)
+    , <HomeomorphicEmb (t.Object1 e.Expr1)t.Object> : 'T'
+        = <MGUAssoc <IntroduceEMGU (<FindAllPredInPattern ()()(t.sort e t.Name)e.Pattern>)(assign (t.sort e t.Name)(t.Object1 e.Expr1)(t.Object))(e.Pattern)(e.Other)(e.MGUs)
             >>;
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object)))e.Other)(e.MGUs),
-	<HomeomorphicEmb (t.Object1 e.Expr1)t.Object> : 'F' = (False)(False); 
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object)))e.Other)(e.MGUs)
+    , <HomeomorphicEmb (t.Object1 e.Expr1)t.Object> : 'F'
+        = (False)(False); 
             
 /* 4а. Пустое выражение обобщается с непустым --- до e-выражения. */
 /*  (e.Pattern)((assign (par e t.Name)(ToUnify (e.Object)()))e.Other)
@@ -931,50 +1228,49 @@ $ENTRY MGUAssoc {
 */
 
 /* 6. Все остальные случаи: либо объекты обобщаются друг с другом, остальное друг с другом, либо объект + выражение со всем, другой объект - с пустым. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object2 e.Expr2)))e.Other)(e.MGUs),
-    <HomeomorphicEmb (t.Object1)t.Object2> : 'T' = 
-            <MinMGU
-                    (<MGUAssoc <ProceedMGU 
-                        (<FreshIndex 'pare_ind'>)(<FreshIndex 'pare_ind'>)
-                        (par e t.Name)
-                        ((t.Object1)(t.Object2))
-                        ((e.Expr1)(e.Expr2))
-                        (e.Pattern)
-                        (e.Other)
-                        (e.MGUs)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object2 e.Expr2)))e.Other)(e.MGUs)
+    , <HomeomorphicEmb (t.Object1)t.Object2> : 'T'
+        = <MinMGU
+            (<MGUAssoc <ProceedMGU 
+                (<FreshIndex <ClassIdentifier t.sort e>>)(<FreshIndex <ClassIdentifier t.sort e>>)
+                (t.sort e t.Name)
+                ((t.Object1)(t.Object2))
+                ((e.Expr1)(e.Expr2))
+                (e.Pattern)
+                (e.Other)
+                (e.MGUs)
+            >>)
+            (<MinMGU    
+                (<MGUAssoc <ProceedMGU 
+                    (<FreshIndex <ClassIdentifier t.sort e>>)(<FreshIndex <ClassIdentifier t.sort e>>)
+                    (t.sort e t.Name)
+                    (()(t.Object2))
+                    ((t.Object1 e.Expr1)(e.Expr2))
+                    (e.Pattern)
+                    (e.Other)
+                    (e.MGUs)
                 >>)
-                (<MinMGU    
-                    (<MGUAssoc <ProceedMGU 
-                        (<FreshIndex 'pare_ind'>)(<FreshIndex 'pare_ind'>)
-                        (par e t.Name)
-                        (()(t.Object2))
-                        ((t.Object1 e.Expr1)(e.Expr2))
-                        (e.Pattern)
-                        (e.Other)
-                        (e.MGUs)
+                (<MGUAssoc <ProceedMGU 
+                    (<FreshIndex <ClassIdentifier t.sort e>>)(<FreshIndex <ClassIdentifier t.sort e>>)
+                    (t.sort e t.Name)
+                    ((t.Object1 e.Expr1)(t.Object2))
+                    (()(e.Expr2))
+                    (e.Pattern)
+                    (e.Other)
+                    (e.MGUs)
                 >>)
-			(<MGUAssoc <ProceedMGU 
-                        (<FreshIndex 'pare_ind'>)(<FreshIndex 'pare_ind'>)
-                        (par e t.Name)
-                        ((t.Object1 e.Expr1)(t.Object2))
-                        (()(e.Expr2))
-                        (e.Pattern)
-                        (e.Other)
-                        (e.MGUs)
-                >>)
-                >)
-		>;
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object2 e.Expr2)))e.Other)
-        (e.MGUs) = 
-                <MGUAssoc <ProceedMGU 
-                        (<FreshIndex 'pare_ind'>)(<FreshIndex 'pare_ind'>)
-                        (par e t.Name)
-                        (()(t.Object2))
-                        ((t.Object1 e.Expr1)(e.Expr2))
-                        (e.Pattern)
-                        (e.Other)
-                        (e.MGUs)
-                >>;
+            >)
+        >;
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Object1 e.Expr1)(t.Object2 e.Expr2)))e.Other)(e.MGUs)
+        = <MGUAssoc <ProceedMGU 
+            (<FreshIndex <ClassIdentifier t.sort e>>)(<FreshIndex <ClassIdentifier t.sort e>>)
+            (t.sort e t.Name)
+            (()(t.Object2))
+            ((t.Object1 e.Expr1)(e.Expr2))
+            (e.Pattern)
+            (e.Other)
+            (e.MGUs)
+        >>;
     (e.Pattern)(e.ToUnify)(e.MGUs) = (False)(False); 
 }/* MGUAssoc */
 
@@ -986,25 +1282,25 @@ $ENTRY MGUAssoc {
 */
 ProceedMGU {
 /* 1. Передаем управление MGUObject. */
-    (t.NewName1)(t.NewName2)(par e t.Name)((t.Expr11)(t.Expr12))((e.Expr21)(e.Expr22))(e.Pattern)(e.ToUnify)(e.MGUs) =
-                    <MGUObject 
-                        (<Substitute ((assign (par e t.Name)((par e t.NewName1)(par e t.NewName2))))e.Pattern>)
-                        (
-                            (assign (par e t.NewName1) (ToUnify (t.Expr11)(t.Expr12)))
-                            (assign (par e t.NewName2) (ToUnify (e.Expr21)(e.Expr22))) 
-                            e.ToUnify
-                        )
-                        (e.MGUs)
-                    >;
+    (t.NewName1)(t.NewName2)(t.sort e t.Name)((t.Expr11)(t.Expr12))((e.Expr21)(e.Expr22))(e.Pattern)(e.ToUnify)(e.MGUs)
+        = <MGUObject 
+            (<Substitute ((assign (t.sort e t.Name)((t.sort e t.NewName1)(t.sort e t.NewName2))))e.Pattern>)
+            (
+                (assign (t.sort e t.NewName1) (ToUnify (t.Expr11)(t.Expr12)))
+                (assign (t.sort e t.NewName2) (ToUnify (e.Expr21)(e.Expr22))) 
+                e.ToUnify
+            )
+            (e.MGUs)
+        >;
 /* 1. Передаем управление IntroduceEMGU. */
-    (t.NewName1)(t.NewName2)(par e t.Name)((e.Expr11)(e.Expr12))((e.Expr21)(e.Expr22))(e.Pattern)(e.ToUnify)(e.MGUs) =
-                    <IntroduceEMGU 
-                        (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
-                        (assign (par e t.NewName1)(e.Expr11)(e.Expr12))
-                        (<Substitute ((assign (par e t.Name)((par e t.NewName1)(par e t.NewName2))))e.Pattern>)
-                        ((assign (par e t.NewName2) (ToUnify (e.Expr21)(e.Expr22))) e.ToUnify)
-                        (e.MGUs)
-                    >;
+    (t.NewName1)(t.NewName2)(t.sort e t.Name)((e.Expr11)(e.Expr12))((e.Expr21)(e.Expr22))(e.Pattern)(e.ToUnify)(e.MGUs)
+        = <IntroduceEMGU 
+            (<FindAllPredInPattern ()()(t.sort e t.Name)e.Pattern>)
+            (assign (t.sort e t.NewName1)(e.Expr11)(e.Expr12))
+            (<Substitute ((assign (t.sort e t.Name)((t.sort e t.NewName1)(t.sort e t.NewName2))))e.Pattern>)
+            ((assign (t.sort e t.NewName2) (ToUnify (e.Expr21)(e.Expr22))) e.ToUnify)
+            (e.MGUs)
+        >;
 /*   (t.NewName1)(t.NewName2)(par e t.Name)(e.E1)(e.E2)(e.Pattern)(e.ToUnify)(e.MGUs) = (False)()(False); */
 }
 
@@ -1015,24 +1311,21 @@ ProceedMGU {
 */
 MGUObject {
 /* 1. Обобщение двух равных термов --- просто подстановка терма вместо е-переменной. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Val)(t.Val)))e.Other)(e.MGUs) 
-        =
-        (<Substitute ((assign (par e t.Name)(t.Val)))e.Pattern>)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Val)(t.Val)))e.Other)(e.MGUs) 
+        = (<Substitute ((assign (t.sort e t.Name)(t.Val)))e.Pattern>)
         (e.Other)
         (e.MGUs);
 
 /* 2. Обобщение двух разных символов или s-параметров до s-параметра (4 случая). */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (s.Sym1)(s.Sym2)))e.Other)(e.MGUs) 
-        =
-        <ProceedNewObjectMGU 
-            (par s <FreshIndex 'pars_ind'>)
-            (e.Pattern)((assign (par e t.Name)(ToUnify (s.Sym1)(s.Sym2)))e.Other)(e.MGUs)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (s.Sym1)(s.Sym2)))e.Other)(e.MGUs) 
+        = <ProceedNewObjectMGU 
+            (t.sort <FreshIndex <ClassIdentifier t.sort s>>)
+            (e.Pattern)((assign (t.sort e t.Name)(ToUnify (s.Sym1)(s.Sym2)))e.Other)(e.MGUs)
         >;
-    (e.Pattern)((assign (par e t.Name)(ToUnify (s.Sym1)((par s t.sname))))e.Other)(e.MGUs)
-        = 
-        <ProceedNewObjectMGU 
-            (par s <FreshIndex 'pars_ind'>)
-            (e.Pattern)((assign (par e t.Name)(ToUnify (s.Sym1)((par s t.sname))))e.Other)(e.MGUs)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (s.Sym1)((t.sort s t.sname))))e.Other)(e.MGUs)
+        = <ProceedNewObjectMGU 
+            (t.sort s <FreshIndex <ClassIdentifier t.sort s>>)
+            (e.Pattern)((assign (t.sort e t.Name)(ToUnify (s.Sym1)((t.sort s t.sname))))e.Other)(e.MGUs)
         >;
 /*
     (e.Pattern)((assign (par e t.Name)(ToUnify ((par s t.sname))(s.Sym2)))e.Other)(e.MGUs) =
@@ -1042,60 +1335,57 @@ MGUObject {
                     >; 
 */
 
-    (e.Pattern)((assign (par e t.Name)(ToUnify ((par s t.sname1))((par s t.sname2))))e.Other)(e.MGUs) 
-        =
-        <ProceedNewObjectMGU 
-            (par s <FreshIndex 'pars_ind'>)
-            (e.Pattern)((assign (par e t.Name)(ToUnify ((par s t.sname1))((par s t.sname2))))e.Other)(e.MGUs)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify ((t.sort s t.sname1))((t.sort s t.sname2))))e.Other)(e.MGUs) 
+        = <ProceedNewObjectMGU 
+            (t.sort s <FreshIndex <ClassIdentifier t.sort s>>)
+            (e.Pattern)((assign (t.sort e t.Name)(ToUnify ((t.sort s t.sname1))((t.sort s t.sname2))))e.Other)(e.MGUs)
         >;
 /* 3. Обобщение двух вызовов одинаковых функций до вызова функции. */
     (e.Pattern)((assign (par e t.Name)(ToUnify ((call (t.fname t.TS1) (args (arg e.Arg1))))((call (t.fname t.TS2) (args (arg e.Arg2))))))e.Other)(e.MGUs)
-        =
-        (<Substitute ((assign (par e t.Name)((call (t.fname <FreshIndex 'time_stamp'>) (args (arg (par e t.Name)))))))e.Pattern>)
+        = (<Substitute ((assign (par e t.Name)((call (t.fname <FreshIndex 'time_stamp'>) (args (arg (par e t.Name)))))))e.Pattern>)
         ((assign (par e t.Name)(ToUnify (e.Arg1)(e.Arg2)))e.Other)
         (e.MGUs);
 /* 4. Обобщение двух выражений в скобках до выражения в скобках. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (('*' e.Expr1))(('*' e.Expr2))))e.Other)(e.MGUs)
-        =
-        (<Substitute ((assign (par e t.Name)(('*' (par e t.Name)))))e.Pattern>)
-        ((assign (par e t.Name)(ToUnify (e.Expr1)(e.Expr2)))e.Other)
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (('*' e.Expr1))(('*' e.Expr2))))e.Other)(e.MGUs)
+        = (<Substitute ((assign (t.sort e t.Name)(('*' (t.sort e t.Name)))))e.Pattern>)
+        ((assign (t.sort e t.Name)(ToUnify (e.Expr1)(e.Expr2)))e.Other)
         (e.MGUs);
 /* 5. Вызов функции и что-то ещё обобщаются до e-параметра (2 случая). */
     (e.Pattern)((assign (par e t.Name)(ToUnify ((call e.call))(e.Expr2)))e.Other)(e.MGUs) 
         = <IntroduceEMGU 
-                        (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
-                        (assign (par e t.Name)((call e.call))(e.Expr2))(e.Pattern)
-                        (e.Other)(e.MGUs)
+            (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
+            (assign (par e t.Name)((call e.call))(e.Expr2))(e.Pattern)
+            (e.Other)(e.MGUs)
         >;
     (e.Pattern)((assign (par e t.Name)(ToUnify (e.Expr1)((call e.call))))e.Other)(e.MGUs) 
         =
         <IntroduceEMGU 
-                        (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
-                        (assign (par e t.Name)(e.Expr1)((call e.call)))(e.Pattern)
-                        (e.Other)(e.MGUs)
+            (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
+            (assign (par e t.Name)(e.Expr1)((call e.call)))(e.Pattern)
+            (e.Other)(e.MGUs)
         >;
 /* 6. е-параметр и что-то ещё обобщаются до e-параметра (2 случая). */
-    (e.Pattern)((assign (par e t.Name)(ToUnify ((par e t.EName))(e.Expr2)))e.Other)(e.MGUs) 
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify ((t.sort e t.EName))(e.Expr2)))e.Other)(e.MGUs) 
         =
         <IntroduceEMGU 
-                        (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
-                        (assign (par e t.Name)((par e t.EName))(e.Expr2))(e.Pattern)
-                        (e.Other)(e.MGUs)
+            (<FindAllPredInPattern ()()(t.sort e t.Name)e.Pattern>)
+            (assign (t.sort e t.Name)((t.sort e t.EName))(e.Expr2))(e.Pattern)
+            (e.Other)(e.MGUs)
         >;
-    (e.Pattern)((assign (par e t.Name)(ToUnify (e.Expr1)((par e t.EName))))e.Other)(e.MGUs) 
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (e.Expr1)((t.sort e t.EName))))e.Other)(e.MGUs) 
         =
         <IntroduceEMGU 
-                        (<FindAllPredInPattern ()()(par e t.Name)e.Pattern>)
-                        (assign (par e t.Name)(e.Expr1)((par e t.EName)))(e.Pattern)
-                        (e.Other)(e.MGUs)
+            (<FindAllPredInPattern ()()(t.sort e t.Name)e.Pattern>)
+            (assign (t.sort e t.Name)(e.Expr1)((t.sort e t.EName)))(e.Pattern)
+            (e.Other)(e.MGUs)
         >;
 /* 7. Во всех прочих случаях обобщаемся до t-параметра. */
-    (e.Pattern)((assign (par e t.Name)(ToUnify (t.Obj1)(t.Obj2)))e.Other)(e.MGUs) 
+    (e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Obj1)(t.Obj2)))e.Other)(e.MGUs) 
         =
         <ProceedNewObjectMGU 
-            (par t <FreshIndex 'part_ind'>)
+            (t.sort t <FreshIndex <ClassIdentifier t.sort t>>)
             (e.Pattern)
-            ((assign (par e t.Name)(ToUnify (t.Obj1)(t.Obj2)))e.Other)
+            ((assign (t.sort e t.Name)(ToUnify (t.Obj1)(t.Obj2)))e.Other)
             (e.MGUs)
         >;    
 }/* MGUObject */
@@ -1108,15 +1398,16 @@ MGUObject {
    t.type ::= t|s
 */
 ProceedNewObjectMGU {
-    (par t.type t.NewName)(e.Pattern)((assign (par e t.Name)(ToUnify (t.Obj1)(t.Obj2)))e.Other)(e.MGUs) 
+    (t.sort t.type t.NewName)(e.Pattern)((assign (t.sort e t.Name)(ToUnify (t.Obj1)(t.Obj2)))e.Other)(e.MGUs) 
         =
         <CheckRepeatedMGUs 
-            ()(<Substitute ((assign (par e t.Name)((par t.type t.NewName))))e.Pattern>)
+            (/* EMPTY */)(<Substitute ((assign (t.sort e t.Name)((t.sort t.type t.NewName))))e.Pattern>)
                 (e.Other)
-                (<DeleteMGU (par e t.Name)e.MGUs> (assign (par t.type t.NewName)(t.Obj1)(t.Obj2)))
+                (<DeleteMGU (t.sort e t.Name)e.MGUs> (assign (t.sort t.type t.NewName)(t.Obj1)(t.Obj2)))
         >;
 }
 
+/* Функция для трассировки. */
 AAA { = ;}
 
 /*
@@ -1127,30 +1418,29 @@ AAA { = ;}
 */
 IntroduceEMGU {
 /* КОСТЫЛЬ! Если нашлась повторная подстановка, стираем возможность сливать переменную. */
-    ((e.Arbitrary1)(e.Arbitrary2))(assign (par e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs),
-    e.MGUs : e.MGUs1 (assign (par e t.OtherName)(e.Expr1)(e.Expr2)) e.MGUs2
-        = <IntroduceEMGU ()(assign (par e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs)>;
+    ((e.Arbitrary1)(e.Arbitrary2))(assign (t.sort e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs)
+    , e.MGUs : e.MGUs1 (assign (t.sort e t.OtherName)(e.Expr1)(e.Expr2)) e.MGUs2
+        = <IntroduceEMGU ()(assign (t.sort e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs)>;
     /* 1. У е-параметра, который обобщаем, в шаблоне ровно 1 предшественник --- тоже е-параметр.
    Сливаем эти параметры, после чего проверяем подстановку на повторность. 
 */
-
-    (((par e t.Name2))(e.Post))(assign (par e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs),
-    <PatternParameter (par e t.Name2) e.Other> : 'F'
+    (((t.sort e t.Name2))(e.Post))(assign (t.sort e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs)
+    , <PatternParameter (t.sort e t.Name2) e.Other> : 'F'
         = <CheckRepeatedMGUs ()<ConcatenateMGUs (1)
-            <FindMGU (par e t.Name2) e.MGUs>
-            (assign (par e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(<DeleteMGU (par e t.Name2) e.MGUs>)
+            <FindMGU (t.sort e t.Name2) e.MGUs>
+            (assign (t.sort e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(<DeleteMGU (t.sort e t.Name2) e.MGUs>)
         >>;
-    ((e.Pred)((par e t.Name2)))(assign (par e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs),
-    <PatternParameter (par e t.Name2) e.Other> : 'F' 
+    ((e.Pred)((t.sort e t.Name2)))(assign (t.sort e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs)
+    , <PatternParameter (t.sort e t.Name2) e.Other> : 'F' 
         =
         <CheckRepeatedMGUs ()<ConcatenateMGUs (0)
-            (assign (par e t.Name)(e.Expr1)(e.Expr2))<FindMGU (par e t.Name2) e.MGUs>(e.Pattern)(e.Other)
-            (<DeleteMGU (par e t.Name2) e.MGUs>)
+            (assign (t.sort e t.Name)(e.Expr1)(e.Expr2))<FindMGU (t.sort e t.Name2) e.MGUs>(e.Pattern)(e.Other)
+            (<DeleteMGU (t.sort e t.Name2) e.MGUs>)
         >>;
 /* 2. Во всех других случаях просто проверяем новую подстановку на повторность и записываем в список ([MGUSub]^*) (последний аргумент). */
-    (e.Arbitrary)(assign (par e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs) 
+    (e.Arbitrary)(assign (t.sort e t.Name)(e.Expr1)(e.Expr2))(e.Pattern)(e.Other)(e.MGUs) 
         =
-        <CheckRepeatedMGUs ()(e.Pattern)(e.Other)(<DeleteMGU (par e t.Name) e.MGUs> (assign (par e t.Name)(e.Expr1)(e.Expr2)))>;
+        <CheckRepeatedMGUs ()(e.Pattern)(e.Other)(<DeleteMGU (t.sort e t.Name) e.MGUs> (assign (t.sort e t.Name)(e.Expr1)(e.Expr2)))>;
 }
 
 PatternParameter {
@@ -1168,8 +1458,8 @@ CheckRepeatedMGUs {
     (e.Checked)(e.Pattern)(e.ToUnify)((assign (e.pardata) t.Val1 t.Val2)) 
         = (e.Pattern)(e.ToUnify)(e.Checked (assign (e.pardata) t.Val1 t.Val2));
 /* 2. Нашлась подстановка с такими же значениями --- значит, наша подстановка есть просто подстановка одного е-параметра. */
-    (e.Checked)(e.Pattern)(e.ToUnify)((assign (e.pardata1) t.Val1 t.Val2) e.Other (assign (e.pardata) t.Val3 t.Val4)),
-    <LogAnd <ComplexCompareCalls  t.Val1 t.Val3><ComplexCompareCalls  t.Val2 t.Val4>> : 'T'
+    (e.Checked)(e.Pattern)(e.ToUnify)((assign (e.pardata1) t.Val1 t.Val2) e.Other (assign (e.pardata) t.Val3 t.Val4))
+    , <LogAnd <ComplexCompareCalls  t.Val1 t.Val3><ComplexCompareCalls  t.Val2 t.Val4>> : 'T'
         = (<Substitute ((assign (e.pardata)((e.pardata1))))e.Pattern>)
         (e.ToUnify)
         (e.Checked (assign (e.pardata1) t.Val1 t.Val2) e.Other);
@@ -1205,16 +1495,16 @@ DeleteMGU {
    [MGUSub][MGUSub]([Expr])([ToUnify]^*)([MGUSub]^*) => ([Expr])([ToUnify]^*)([MGUSub]^*)
 */
 ConcatenateMGUs {
-    (0)(assign (par e t.Name1)(e.Expr11)(e.Expr12))(assign (par e t.Name2)(e.Expr21)(e.Expr22))(e.Pattern)(e.Other)(e.MGUs) =
-        (<Substitute ((assign (par e t.Name2)())) e.Pattern>)(e.Other)
-        (e.MGUs (assign (par e t.Name1)(e.Expr11 e.Expr21)(e.Expr12 e.Expr22)));
-    (1)(assign (par e t.Name1)(e.Expr11)(e.Expr12))(assign (par e t.Name2)(e.Expr21)(e.Expr22))(e.Pattern)(e.Other)(e.MGUs) =
-        (<Substitute ((assign (par e t.Name1)())) e.Pattern>)(e.Other)
-        (e.MGUs (assign (par e t.Name2)(e.Expr11 e.Expr21)(e.Expr12 e.Expr22)));
+    (0)(assign (t.sort e t.Name1)(e.Expr11)(e.Expr12))(assign (t.sort e t.Name2)(e.Expr21)(e.Expr22))(e.Pattern)(e.Other)(e.MGUs)
+        = (<Substitute ((assign (t.sort e t.Name2)())) e.Pattern>)(e.Other)
+        (e.MGUs (assign (t.sort e t.Name1)(e.Expr11 e.Expr21)(e.Expr12 e.Expr22)));
+    (1)(assign (t.sort e t.Name1)(e.Expr11)(e.Expr12))(assign (t.sort e t.Name2)(e.Expr21)(e.Expr22))(e.Pattern)(e.Other)(e.MGUs)
+        = (<Substitute ((assign (t.sort e t.Name1)())) e.Pattern>)(e.Other)
+        (e.MGUs (assign (t.sort e t.Name2)(e.Expr11 e.Expr21)(e.Expr12 e.Expr22)));
 }
 
 FirstEVar {
-    (par e e.par) e.other = (par e e.par);
+    (t.sort e e.par) e.other = (t.sort e e.par);
     e.other = 'F';
 }
 
@@ -1225,34 +1515,39 @@ FirstEVar {
 */
 FindAllPredInPattern {
 /* 1. Всё смотрено. */
-    (e.Pred)(e.Post)(par e t.Name) = (e.Pred)(e.Post); 
+    (e.Pred)(e.Post)(t.sort e t.Name) = (e.Pred)(e.Post); 
 /*
    2. В образце хотя бы перед одним вхождением этой переменной стоит символ, выражение в скобках, параметр узкого типа или вызов -> 
    присоединять не к чему (5 случаев). 
 */
-    (e.Pred)(e.Post)(par e t.Name)t.pred (par e t.Name) e.Expr,
-    <FirstEVar t.pred> : 'F', <FirstEVar e.Expr> : 'F' = (False)(False); 
-    (e.Pred)(e.Post)(par e t.Name)t.pred (par e t.Name) e.Expr,
-    <FirstEVar t.pred> : 'F', <FirstEVar e.Expr> : (par e t.Name2) 
-        = <FindAllPredInPattern (e.Pred)(e.Post (par e t.Name2))(par e t.Name) e.Expr>; 
+    (e.Pred)(e.Post)(t.sort e t.Name)t.pred (t.sort e t.Name) e.Expr
+    , <FirstEVar t.pred> : 'F'
+    , <FirstEVar e.Expr> : 'F'
+        = (False)(False); 
+    (e.Pred)(e.Post)(t.sort e t.Name)t.pred (t.sort e t.Name) e.Expr
+    , <FirstEVar t.pred> : 'F'
+    , <FirstEVar e.Expr> : (t.sort e t.Name2) 
+        = <FindAllPredInPattern (e.Pred)(e.Post (t.sort e t.Name2))(t.sort e t.Name) e.Expr>; 
 /* 3. перед вхождением этого параметра стоит другой е-параметр --- возвращаем его и продолжаем искать дальше. */
-    (e.Pred)(e.Post)(par e t.Name)(par e t.Name2) (par e t.Name) e.Expr,
-    <FirstEVar e.Expr> : (par e t.Name3)  
-        = <FindAllPredInPattern (e.Pred (par e t.Name2))(e.Post (par e t.Name3))(par e t.Name) e.Expr>;
+    (e.Pred)(e.Post)(t.sort e t.Name)(t.sort e t.Name2) (t.sort e t.Name) e.Expr
+    , <FirstEVar e.Expr> : (t.sort e t.Name3)  
+        = <FindAllPredInPattern (e.Pred (t.sort e t.Name2))(e.Post (t.sort e t.Name3))(t.sort e t.Name) e.Expr>;
 /* 3. перед вхождением этого параметра стоит другой е-параметр --- возвращаем его и продолжаем искать дальше. */
-    (e.Pred)(e.Post)(par e t.Name)(par e t.Name2) (par e t.Name) e.Expr 
-        = <FindAllPredInPattern (e.Pred (par e t.Name2))(e.Post)(par e t.Name) e.Expr>;
+    (e.Pred)(e.Post)(t.sort e t.Name)(t.sort e t.Name2) (t.sort e t.Name) e.Expr 
+        = <FindAllPredInPattern (e.Pred (t.sort e t.Name2))(e.Post)(t.sort e t.Name) e.Expr>;
 /* 4. За ближайшим термом не стоит проверяемый параметр --- продолжаем поиск. */    
-    (e.Pred)(e.Post)(par e t.Name)s.Sym e.Expr = <FindAllPredInPattern (e.Pred)(e.Post)(par e t.Name)e.Expr>; 
-    (e.Pred)(e.Post)(par e t.Name)('*'e.Expr1) e.Expr,
-    <FindAllPredInPattern ()()(par e t.Name)e.Expr1> : (e.Pred1)(e.Post1) 
+    (e.Pred)(e.Post)(t.sort e t.Name)s.Sym e.Expr
+        = <FindAllPredInPattern (e.Pred)(e.Post)(t.sort e t.Name)e.Expr>; 
+    (e.Pred)(e.Post)(t.sort e t.Name)('*'e.Expr1) e.Expr
+    , <FindAllPredInPattern ()()(t.sort e t.Name)e.Expr1> : (e.Pred1)(e.Post1) 
         = 
-        <FindAllPredInPattern (e.Pred e.Pred1)(e.Post e.Post1)(par e t.Name)e.Expr>; 
-    (e.Pred)(e.Post)(par e t.Name)(call t.fname (args (arg e.Expr1))) e.Expr,
-    <FindAllPredInPattern ()()(par e t.Name)e.Expr1> : (e.Pred1)(e.Post1) 
+        <FindAllPredInPattern (e.Pred e.Pred1)(e.Post e.Post1)(t.sort e t.Name)e.Expr>; 
+    (e.Pred)(e.Post)(t.sort e t.Name)(call t.fname (args (arg e.Expr1))) e.Expr
+    , <FindAllPredInPattern ()()(t.sort e t.Name)e.Expr1> : (e.Pred1)(e.Post1) 
         = 
-        <FindAllPredInPattern (e.Pred e.Pred1)(e.Post e.Post1)(par e t.Name)e.Expr>; 
-    (e.Pred)(e.Post)(par e t.Name)(par e.pardata) e.Expr = <FindAllPredInPattern (e.Pred)(e.Post)(par e t.Name)e.Expr>; 
+        <FindAllPredInPattern (e.Pred e.Pred1)(e.Post e.Post1)(t.sort e t.Name)e.Expr>; 
+    (e.Pred)(e.Post)(t.sort e t.Name)(t.sort e.pardata) e.Expr
+        = <FindAllPredInPattern (e.Pred)(e.Post)(t.sort e t.Name)e.Expr>; 
 }
 
 /*
@@ -1260,17 +1555,28 @@ FindAllPredInPattern {
    (([Expr])([MGUSub]^*))(([Expr])([MGUSub]^*)) => (([Expr])([MGUSub]^*))
 */
 MinMGU {
-    e.MaybeMGU1 ((False)(False)) e.MaybeMGU2, e.MaybeMGU1 e.MaybeMGU2 : (e.CorrectMGU) = e.CorrectMGU;
-        ((e.Pattern1)(e.Assignments1))((e.Pattern2)(e.Assignments2)) = 
-                    <ChooseLeastMGU 
-                        ((e.Pattern1)(e.Assignments1))
-                        ((e.Pattern2)(e.Assignments2))
-                        <Compare 
-                            <Sub <WeightMGU (0)e.Assignments1><WeightPattern (0)e.Pattern1>>
-                            <Sub <WeightMGU (0)e.Assignments2><WeightPattern (0)e.Pattern2>>
-                        >
-                    >;
-
+    e.MaybeMGU1 ((False)(False)) e.MaybeMGU2, e.MaybeMGU1 e.MaybeMGU2 : ((e.Pattern)(e.Assignments))
+    , <WeightNewMGU (0)e.Assignments> :
+        {/* Nil = (False)(False); */
+        e.Other = (e.Pattern)(e.Assignments);
+        };
+    ((e.Pattern1)(e.Assignments1))((e.Pattern2)(e.Assignments2))
+    , <WeightNewMGU (1000)e.Assignments1> : s.W1
+    , <WeightNewMGU (1000)e.Assignments2> : s.W2
+    , s.W1 s.W2 :
+        { /* Nil Nil = (False)(False);*/
+        Nil s.W2 = (e.Pattern2)(e.Assignments2);
+        s.W1 Nil = (e.Pattern1)(e.Assignments1);
+        e.Z
+            = <ChooseLeastMGU 
+                ((e.Pattern1)(e.Assignments1))
+                ((e.Pattern2)(e.Assignments2))
+                <Compare 
+                    <Sub s.W1 <WeightPattern (500)(e.Assignments1)e.Pattern1>>
+                    <Sub s.W2 <WeightPattern (500)(e.Assignments2)e.Pattern2>>
+                >
+            >;
+        };
 }
 
 /*
@@ -1279,20 +1585,51 @@ MinMGU {
 */
 WeightPattern {
 /* 1. Все посчитано. */
-    (s.Weight) = s.Weight;
-/* 2. Символ в шаблоне. */
-    (s.Weight)s.Sym e.Pattern = <WeightPattern (<Add s.Weight 200>) e.Pattern>;
-/* 3. Символьный параметр в шаблоне. */
-    (s.Weight)(par s e.par) e.Pattern = <WeightPattern (<Add s.Weight 120>) e.Pattern>;
+    (s.Weight)(e.Asgs) = s.Weight;
 /* 4. Скобки в шаблоне. */
-    (s.Weight)e.Pt1 ('*' e.InBracks) e.Pattern = <WeightPattern (<Add s.Weight 80>) e.Pt1 e.InBracks e.Pattern>;
-/* 5. Термовый параметр в шаблоне. */
-    (s.Weight)(par t e.par) e.Pattern = <WeightPattern (<Add s.Weight 70>) e.Pattern>;
-/* 6. Вызов функции в шаблоне. */
-    (s.Weight)e.Pt1 (call t.fname (args (arg e.arg))) e.Pattern = <WeightPattern (<Add s.Weight 120>) e.Pt1 e.arg e.Pattern>;
-/* 7. Худшее --- е-параметр в шаблоне. */
-/*  (s.Weight)e.Pt1 (par e e.par) e.Pt2 (par e e.par) e.Pattern = <WeightPattern (<Add s.Weight 100>) e.Pt1 e.Pt2 e.Pattern>; */
-    (s.Weight)(par e e.par) e.Pattern = <WeightPattern (s.Weight) e.Pattern>;
+    (s.Weight)(e.Asgs) e.Pt1 ('*' e.InBracks) e.Pattern
+        = <WeightPattern (<Add s.Weight 25>)(e.Asgs) e.Pt1 e.InBracks e.Pattern>; /* Было 80 */
+/* 5. Вызов функции в шаблоне. */
+    (s.Weight)(e.Asgs)e.Pt1 (call t.fname (args (arg e.arg))) e.Pattern
+        = <WeightPattern (<Add s.Weight 30>)(e.Asgs) e.Pt1 e.arg e.Pattern>; /* Было 120 */
+/* 2. Символ в шаблоне. */
+    (s.Weight)(e.Asgs)s.Sym e.Pattern = <WeightPattern (<Add s.Weight 25>)(e.Asgs) e.Pattern>; /* Было 250  */
+/* 3. Параметр в шаблоне. */
+    (s.Weight)(e.Asgs)(t.sort t.type t.name) e.Pat1 (t.sort t.type t.name) e.Pattern
+    , weval var par : e.1 t.sort e.2
+    , t.type :
+            {s = <WeightPattern (<Add s.Weight 20>)(e.Asgs) e.Pat1 (t.sort t.type t.name) e.Pattern>; /* Было 170  */
+             t = <WeightPattern (<Add s.Weight 15>)(e.Asgs) e.Pat1 (t.sort t.type t.name) e.Pattern>; /* Было 130  */
+             e = <WeightPattern (<Add s.Weight 10>)(e.Asgs) e.Pat1 (t.sort t.type t.name) e.Pattern>; /* Было 50  */
+            };
+    (s.Weight)(e.Asgs)(t.sort t.type t.name) e.Pattern
+    , weval var par : e.1 t.sort e.2
+    , t.type :
+            {s = <WeightPattern (<Add s.Weight 10>)(e.Asgs) e.Pattern>; /* Было 120  */
+             t = <WeightPattern (<Add s.Weight 5>)(e.Asgs) e.Pattern>; /* Было 80  */
+             e = <WeightPattern (s.Weight)(e.Asgs) e.Pattern>; /* Было 0  */
+            };
+/*
+    , e.Asgs :
+        {e.x1 (assign (par t.type t.parname)e.Val) e.x2
+        , t.type :
+            {s = <WeightPattern (<Add s.Weight 120>)(e.Asgs) e.Pattern>;
+             t = <WeightPattern (<Add s.Weight 80>)(e.Asgs) e.Pattern>;
+             e = <WeightPattern (s.Weight)(e.Asgs) e.Pattern>;
+            };
+        e.Other = <WeightPattern (<Add s.Weight 200>)(e.Asgs) e.Pattern>;
+        };
+*/
+}
+
+ShortTerms {
+    e.1 (t.sort e e.data) e.2 = 'F';
+    s.1 t.1 e.1 = <ShortTerms <Add s.1 1> e.1>;
+    s.1
+    , <MyMax s.1 <Add <CurrentIndex 'MaxConst'> 1>> : 
+        { s.1 = 'T';
+        s.Other = 'F';
+        };
 }
 
 /* Вспомогательная для MinMGU. */
@@ -1301,71 +1638,99 @@ ChooseLeastMGU {
     ((e.Pattern1)(e.Assignments1))((e.Pattern2)(e.Assignments2))s.0 = (e.Pattern1)(e.Assignments1);
 }
 
+WeightNewMGU {
+    (e.Weight)False = Nil;
+    (e.Weight)(assign (e.Var)(e.Val1)(e.Val2))e.Others 
+        = <WeightNewMGU (<Add e.Weight 10>)(assign (e.Val1))(assign (e.Val2))e.Others >;
+    (e.Weight)(assign (t.Val1 t.1 e.ValOther)) e.Others
+        = <WeightNewMGU (<Add e.Weight 10>)(assign (t.Val1))(assign (t.1 e.ValOther))e.Others>;
+    (e.Weight)(assign ( )) e.Others
+        = <WeightNewMGU (e.Weight) e.Others>;
+    (e.Weight)(assign (s.X)) e.Others
+        = <WeightNewMGU (e.Weight) e.Others>;
+    (e.Weight)(assign ((par s t.Name))) e.Others
+        = <WeightNewMGU (e.Weight) e.Others>;
+    (e.Weight)(assign ((par t t.Name))) e.Others
+        = <WeightNewMGU (e.Weight) e.Others>;
+    (e.Weight)(assign ((par e t.Name))) e.Others
+        = <WeightNewMGU (e.Weight) e.Others>;
+    (e.Weight)(assign (('*' e.InBr))) e.Others
+        = <WeightNewMGU (e.Weight)(assign (e.InBr)) e.Others>;
+    (e.Weight)(assign ((call t.call (args (arg e.Arg))))) e.Others
+        = <WeightNewMGU (e.Weight)(assign (e.Arg)) e.Others>;
+    (e.Weight) /* EMPTY */
+        = e.Weight;
+    
+}
+
 /*
     Функция назначения веса сопоставлений --- в доработке!
    ([Number])[MGUSub]^* => [Number]
 */
 WeightMGU {
 /* 0. Подстановки "символ - пустое множество" весят мало. */
-    (e.Weight)e.Oth1 (assign (e.Var)()(s.Sym))e.Others =
-     <WeightMGU (<Add e.Weight 1>)e.Oth1 e.Others>;
-    (e.Weight)e.Oth1 (assign (e.Var)(s.Sym)())e.Others =
-     <WeightMGU (<Add e.Weight 1>)e.Oth1 e.Others>;
+    (e.Weight)False = Nil;
+ /*   (e.Weight)e.Oth1 (assign (e.Var)(e.Terms1)(e.Terms2))e.Others
+    , <LogAnd <ShortTerms 0 e.Terms1><ShortTerms 0 e.Terms2>> : 'T'
+        = Nil;*/
+    (e.Weight)e.Oth1 (assign (e.Var)()(s.Sym))e.Others
+        = <WeightMGU (<Add e.Weight 10>)e.Oth1 e.Others>;
+/*    (e.Weight)e.Oth1 (assign (e.Var)(s.Sym)())e.Others
+        = <WeightMGU (<Add e.Weight 10>)e.Oth1 e.Others>;*/
 /* 1. Расщепление каждой подстановки на две подстановки. */
     (e.Weight)(assign (e.Var)(e.Val1)(e.Val2))e.Others 
-        = <WeightMGU (e.Weight)(assign (e.Var)(e.Val1))(assign (e.Var)(e.Val2))e.Others >;
+        = <WeightMGU (<Add e.Weight 10>)(assign (e.Var)(e.Val1))(assign (e.Var)(e.Val2))e.Others >;
 /* 2. Прошлись по всем, посчитали. */
     (e.Weight) = e.Weight;
 /* 3. Назначение параметру параметра того же типа --- хорошо. Это значит, были повторные подстановки. */
-    (e.Weight)(assign (par s.type t.parname)((par s.type t.parname2)))e.Assignments 
+    (e.Weight)(assign (t.sort s.type t.parname)((t.sort s.type t.parname2)))e.Assignments 
         = <WeightMGU (<Sub e.Weight 10>) e.Assignments>;
 /* 4. Назначение параметру выражения, с двух сторон окруженного е-параметрами. */
-    (e.Weight)(assign (par e t.parname)((par e t.parname2)e.Expr(par e t.parname3)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((t.sort e t.parname2)e.Expr(t.sort e t.parname3)))e.Assignments 
         = <WeightMGU (<Add e.Weight 10>) e.Assignments>;
 /* 5. Назначение параметру выражения, содержащего символ и е-параметр с краю (2 случая). */
-    (e.Weight)(assign (par e t.parname)((par e t.parname2)e.Expr s.Sym))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((t.sort e t.parname2)e.Expr s.Sym))e.Assignments 
         = <WeightMGU (<Add e.Weight 20>) e.Assignments>;
-    (e.Weight)(assign (par e t.parname)(s.Sym e.Expr (par e t.parname2)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(s.Sym e.Expr (t.sort e t.parname2)))e.Assignments 
         = <WeightMGU (<Add e.Weight 20>) e.Assignments>;
 /* 6. Назначение параметру выражения, содержащего вызов. */
-    (e.Weight)(assign (par e t.parname)((call e.call)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((call e.call)))e.Assignments 
         = <WeightMGU (<Add e.Weight 5>) e.Assignments>;
 /* 7. Назначение параметру выражения, содержащего s-параметр и е-параметр с краю (2 случая). */
-    (e.Weight)(assign (par e t.parname)((par e t.parname2)e.Expr(par s t.sparname)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((t.sort e t.parname2)e.Expr(t.sort s t.sparname)))e.Assignments 
         = <WeightMGU (<Add e.Weight 15>) e.Assignments>;
-    (e.Weight)(assign (par e t.parname)((par s t.sparname)e.Expr(par e t.parname2)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((t.sort s t.sparname)e.Expr(t.sort e t.parname2)))e.Assignments 
         = <WeightMGU (<Add e.Weight 15>) e.Assignments>;
 /* 8. Назначение параметру выражения, содержащего t-параметр либо скобки и е-параметр с краю (2 случая). */
-    (e.Weight)(assign (par e t.parname)((par e t.parname2)e.Expr t.Term))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((t.sort e t.parname2)e.Expr t.Term))e.Assignments 
         = <WeightMGU (<Add e.Weight 10>) e.Assignments>;
-    (e.Weight)(assign (par e t.parname)(t.Term e.Expr(par e t.parname2)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(t.Term e.Expr(t.sort e t.parname2)))e.Assignments 
         = <WeightMGU (<Add e.Weight 10>) e.Assignments>;
 /* 9. Назначение параметру пустого выражения или символа (2 случая). */
-    (e.Weight)(assign (par e t.parname)())e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)())e.Assignments 
         = <WeightMGU (<Add e.Weight 60>) e.Assignments>;    
-    (e.Weight)(assign (par e t.parname)(s.Sym))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(s.Sym))e.Assignments 
         = <WeightMGU (<Add e.Weight 60>) e.Assignments>;    
 /* 10. Назначение параметру параметра более узкого типа или выражения в скобках - 3 случая. */
-    (e.Weight)(assign (par e t.parname)((par s t.sparname)))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)((t.sort s t.sparname)))e.Assignments 
         = <WeightMGU (<Add e.Weight 30>) e.Assignments>;    
-    (e.Weight)(assign (par e t.parname)(t.Term))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(t.Term))e.Assignments 
         = <WeightMGU (<Add e.Weight 20>) e.Assignments>;    
-    (e.Weight)(assign (par t t.parname)((par s t.sparname)))e.Assignments 
+    (e.Weight)(assign (t.sort t t.parname)((t.sort s t.sparname)))e.Assignments 
         = <WeightMGU (<Add e.Weight 5>) e.Assignments>;   
 /* 11. Назначение t-параметру выражения в скобках либо символа. */
-    (e.Weight)(assign (par t t.parname)(t.BracksOrSym))e.Assignments 
+    (e.Weight)(assign (t.sort t t.parname)(t.BracksOrSym))e.Assignments 
         = <WeightMGU (<Add e.Weight 10>) e.Assignments>;
 /* 12. Назначение s-параметру символа. */	
-    (e.Weight)(assign (par s t.parname)(s.Sym))e.Assignments 
+    (e.Weight)(assign (t.sort s t.parname)(s.Sym))e.Assignments 
         = <WeightMGU (<Add e.Weight 5>) e.Assignments>;    
 /* 13. Назначение e-параметру выражения, содержащего хотя бы один вызов внутри. */	
-    (e.Weight)(assign (par e t.parname)(e.Expr1 (call e.call) e.Expr2))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(e.Expr1 (call e.call) e.Expr2))e.Assignments 
         = <WeightMGU (<Add e.Weight 10>) e.Assignments>;
 /* 14. Назначение e-параметру выражения, содержащего термы с двух сторон и е-параметр внутри. */	
-    (e.Weight)(assign (par e t.parname)(e.Expr1 (par e t.parname) e.Expr2))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(e.Expr1 (t.sort e t.parname) e.Expr2))e.Assignments 
         = <WeightMGU (<Add e.Weight 20>) e.Assignments>;
 /* 15. Назначение e-параметру выражения, содержащего лишь объектные выражения либо вызовы. */	
-    (e.Weight)(assign (par e t.parname)(e.Expr))e.Assignments 
+    (e.Weight)(assign (t.sort e t.parname)(e.Expr))e.Assignments 
         = <WeightMGU (<Add e.Weight 30>) e.Assignments>;
 }/* WeightMGU */
-

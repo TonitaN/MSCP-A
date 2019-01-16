@@ -1,15 +1,7 @@
 
 /*
- The test is taken from the following paper:
- M.T Trinh, D.H Chu, J. Jaffar, Progressive reasoning over recursively-defined strings /
- International Conference on Computer Aided Verification, 218-240
-
- The sanitization procedure replaces the substring 'ip' by the substring ' ip address ' in a web code.
- We say the procedure is correct if the resulting code does not contain the substring '<script'.
-
- The residual program does not contain functions returning 'F', 
- hence the protocol is proven to be correct in respect to the given condition.
-*/
+ A slightly changed variant of test_Script.ref.
+ */
 
 
 /***********************************************/
@@ -21,14 +13,14 @@ $ENTRY Go {
 }
 
 ReplaceIp {
-    e.x1 'ip' e.x2 = e.x1' ip address '<ReplaceIp e.x2>;
+    e.x1 'ip' e.x2 = e.x1'ip address'<ReplaceIp e.x2>;
     e.Other = e.Other;
 }
 
 Check {
     = 'T';
-    '<script'e.x = 'F';
-    t.y e.Z = <Check e.Z>;
+    '<script'e.x2 = 'F';
+    t.y1 e.Z = <Check e.Z>;
 }
 
 /***********************************************/
@@ -36,7 +28,6 @@ Check {
 /***********************************************/
 
 /*
-
 $ENTRY Go {
  e.x1 =  <Check_0 e.x1>;
 }
@@ -58,5 +49,4 @@ Check_13_0 {
  =  'T';
  t.y1 e.x1 =  <Check_13_0 e.x1>;
 }
-
 */

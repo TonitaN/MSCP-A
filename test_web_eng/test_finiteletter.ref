@@ -1,0 +1,642 @@
+/*
+ Consider the following statement.
+ Given an arbitrary word in the language {A,B}, if it is of the length at least 4, it contains a subword w ++ w for some non-empty string w. 
+
+ It is proven by the supercompiler by considering the prefixes of an arbitrary word of the length 4.
+ The resulting program after two applications of the supercompiler does not contain functions returning 'F'. 
+*/
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+  (s.z1 s.z2 s.z3 s.z4 e.x1)
+	 = <CheckQuad <Format1 (s.z1 s.z2 s.z3 s.z4)(s.z1 s.z2 s.z3 s.z4 e.x1)> >;
+}
+
+Format1 {
+  (e.x)(e.y) = (e.x)(e.y)(e.y);
+}
+
+Format2 {
+  (e.x) = (e.x)(e.x)(e.x);
+}
+
+SubstringQuad {
+  (s.z1 e.x1) e.x2 s.z1 e.x1 s.z1 e.x1 e.x3 = 'T';
+  (e.x1) e.x2 = 'F';
+}
+
+Alph {
+   'A' = 'T';
+   'B' = 'T';
+}
+
+IsInAlphabet {
+    s.z1 e.OtherLetters
+	= <IsInAlphabetAux <Alph s.z1> e.OtherLetters>;
+    /* EMPTY */ = 'T';
+}
+
+IsInAlphabetAux {
+   'T' e.String = <IsInAlphabet e.String>;
+}
+
+CheckQuad {
+   (e.Prefix)(e.WholeString)(e.StringToCheck) e.OtherToCheck
+	= <CheckQuadAux (e.Prefix)(e.WholeString)<IsInAlphabet e.StringToCheck> e.OtherToCheck>;
+   (e.Prefix)(e.WholeString)
+	= <CheckQuadFinal (e.Prefix) e.WholeString>;	 
+}
+
+CheckQuadAux {
+   (e.Prefix)(e.WholeString) 'T' e.OtherToCheck = <CheckQuad (e.Prefix)(e.WholeString) e.OtherToCheck>;
+}
+
+CheckQuadFinal {
+   (e.Prefix)e.WholeString = <CheckQuadFinalAux <SubstringQuad (e.Prefix)e.WholeString>(e.Prefix)(e.WholeString)>;
+}
+
+
+CheckQuadFinalAux {
+   'T' (e.QuadCandidate)(e.String) = 'T';
+   'F' (e.QuadCandidate)( ) = 'F';
+   'F' ( )(s.LastLetter) = 'F';
+   'F' ( )(s.First e.RestWholeString) = <CheckQuadFinal (e.RestWholeString) e.RestWholeString>;
+   'F' (e.QuadCandidate s.Last)(e.WholeString) = <CheckQuadFinal (e.QuadCandidate)e.WholeString>; 
+}
+
+/*********************************************************************************/
+/*                 the residual program  (2 iterations)                          */
+/*********************************************************************************/
+/*
+$ENTRY Go {
+ (s.z1 s.z2 s.z3 s.z4 e.x1) =  <InputFormat_0 s.z1 s.z2 s.z3 s.z4 (e.x1)>;
+}
+
+
+InputFormat_0 {
+ 'AAAA' (e.x1) =  <Let_1 (e.x1) (e.x1)>;
+ 'AAAB' (e.x1) =  <Let_2 (e.x1) (e.x1)>;
+ 'AABA' (e.x1) =  <Let_3 (e.x1) (e.x1)>;
+ 'AABB' (e.x1) =  <Let_4 (e.x1) (e.x1)>;
+ 'ABAA' (e.x1) =  <Let_5 (e.x1) (e.x1)>;
+ 'ABAB' (e.x1) =  <Let_6 (e.x1) (e.x1)>;
+ 'ABBA' (e.x1) =  <Let_7 (e.x1) (e.x1)>;
+ 'ABBB' (e.x1) =  <Let_8 (e.x1) (e.x1)>;
+ 'BAAA' (e.x1) =  <Let_9 (e.x1) (e.x1)>;
+ 'BAAB' (e.x1) =  <Let_10 (e.x1) (e.x1)>;
+ 'BABA' (e.x1) =  <Let_11 (e.x1) (e.x1)>;
+ 'BABB' (e.x1) =  <Let_12 (e.x1) (e.x1)>;
+ 'BBAA' (e.x1) =  <Let_13 (e.x1) (e.x1)>;
+ 'BBAB' (e.x1) =  <Let_14 (e.x1) (e.x1)>;
+ 'BBBA' (e.x1) =  <Let_15 (e.x1) (e.x1)>;
+ 'BBBB' (e.x1) =  <Let_16 (e.x1) (e.x1)>;
+}
+
+
+CheckQuadAux_0_12378910_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_0_12378910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_0_12378910_0 (e.x1) (e.x2)>;
+ ('AAAA' e.x1) () =  'T';
+ (e.x1 'AAAAAAAA' e.x2) () =  'T';
+ ('AA' e.x1) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_1_1234567_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_1_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_1_1234567_0 (e.x1) (e.x2)>;
+ ('AAAB' e.x1) () =  'T';
+ (e.x1 'AAABAAAB' e.x2) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_2_12345678910_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_2_12345678910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_2_12345678910_0 (e.x1) (e.x2)>;
+ ('AABA' e.x1) () =  'T';
+ ('ABAAABA' e.x1) () =  'T';
+ (e.x1 'AABAAABA' e.x2) () =  'T';
+ ('AB' e.x1) () =  'T';
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ ('AAA' e.x1) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_3_1234567_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_3_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_3_1234567_0 (e.x1) (e.x2)>;
+ ('AABB' e.x1) () =  'T';
+ (e.x1 'AABBAABB' e.x2) () =  'T';
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_4_123456789_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_4_123456789_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_4_123456789_0 (e.x1) (e.x2)>;
+ ('ABAA' e.x1) () =  'T';
+ ('BAAABAA' e.x1) () =  'T';
+ (e.x1 'ABAAABAA' e.x2) () =  'T';
+ ('BA' e.x1) () =  'T';
+ (e.x1 'ABAABA' e.x2) () =  'T';
+ (e.x1 'ABAB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_5_1235678_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_5_1235678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_5_1235678_0 (e.x1) (e.x2)>;
+ ('ABAB' e.x1) () =  'T';
+ (e.x1 'ABABABAB' e.x2) () =  'T';
+ ('AABA' e.x1) () =  'T';
+ (e.x1 'ABAABA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_6_123456789101112_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_6_123456789101112_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_6_123456789101112_0 (e.x1) (e.x2)>;
+ ('ABBA' e.x1) () =  'T';
+ ('BBAABBA' e.x1) () =  'T';
+ (e.x1 'ABBAABBA' e.x2) () =  'T';
+ ('BB' e.x1) () =  'T';
+ (e.x1 'ABBABB' e.x2) () =  'T';
+ ('BAB' e.x1) () =  'T';
+ (e.x1 'ABAB' e.x2) () =  'T';
+ ('A' e.x1) () =  'T';
+ (e.x1 'AA' e.x2) () =  'T';
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_7_12345678_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_7_12345678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_7_12345678_0 (e.x1) (e.x2)>;
+ ('ABBB' e.x1) () =  'T';
+ (e.x1 'ABBBABBB' e.x2) () =  'T';
+ (e.x1 'ABBABB' e.x2) () =  'T';
+ (e.x1 'ABAB' e.x2) () =  'T';
+ (e.x1 'AA' e.x2) () =  'T';
+ ('BBB' e.x1) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ ('B' e.x1) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_8_12345678_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_8_12345678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_8_12345678_0 (e.x1) (e.x2)>;
+ ('BAAA' e.x1) () =  'T';
+ (e.x1 'BAAABAAA' e.x2) () =  'T';
+ (e.x1 'BAABAA' e.x2) () =  'T';
+ (e.x1 'BABA' e.x2) () =  'T';
+ (e.x1 'BB' e.x2) () =  'T';
+ ('AAA' e.x1) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ ('A' e.x1) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_9_123456789101112_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_9_123456789101112_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_9_123456789101112_0 (e.x1) (e.x2)>;
+ ('BAAB' e.x1) () =  'T';
+ ('AABBAAB' e.x1) () =  'T';
+ (e.x1 'BAABBAAB' e.x2) () =  'T';
+ ('AA' e.x1) () =  'T';
+ (e.x1 'BAABAA' e.x2) () =  'T';
+ ('ABA' e.x1) () =  'T';
+ (e.x1 'BABA' e.x2) () =  'T';
+ ('B' e.x1) () =  'T';
+ (e.x1 'BB' e.x2) () =  'T';
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_10_1235678_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_10_1235678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_10_1235678_0 (e.x1) (e.x2)>;
+ ('BABA' e.x1) () =  'T';
+ (e.x1 'BABABABA' e.x2) () =  'T';
+ ('BBAB' e.x1) () =  'T';
+ (e.x1 'BABBAB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_11_123456789_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_11_123456789_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_11_123456789_0 (e.x1) (e.x2)>;
+ ('BABB' e.x1) () =  'T';
+ ('ABBBABB' e.x1) () =  'T';
+ (e.x1 'BABBBABB' e.x2) () =  'T';
+ ('AB' e.x1) () =  'T';
+ (e.x1 'BABBAB' e.x2) () =  'T';
+ (e.x1 'BABA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_12_1234567_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_12_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_12_1234567_0 (e.x1) (e.x2)>;
+ ('BBAA' e.x1) () =  'T';
+ (e.x1 'BBAABBAA' e.x2) () =  'T';
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_13_12345678910_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_13_12345678910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_13_12345678910_0 (e.x1) (e.x2)>;
+ ('BBAB' e.x1) () =  'T';
+ ('BABBBAB' e.x1) () =  'T';
+ (e.x1 'BBABBBAB' e.x2) () =  'T';
+ ('BA' e.x1) () =  'T';
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ ('BBB' e.x1) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_14_1234567_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_14_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_14_1234567_0 (e.x1) (e.x2)>;
+ ('BBBA' e.x1) () =  'T';
+ (e.x1 'BBBABBBA' e.x2) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_15_12378910_0 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_15_12378910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_15_12378910_0 (e.x1) (e.x2)>;
+ ('BBBB' e.x1) () =  'T';
+ (e.x1 'BBBBBBBB' e.x2) () =  'T';
+ ('BB' e.x1) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_0_12378910_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_0_12378910_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_0_12378910_1 (e.x1) (e.x2)>;
+ ('AAAA' e.x1) () =  'T';
+ (e.x1 'AAAAAAAA' e.x2) () =  'T';
+ ('AA' e.x1) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_1_1234567_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_1_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_1_1234567_1 (e.x1) (e.x2)>;
+ ('AAAB' e.x1) () =  'T';
+ (e.x1 'AAABAAAB' e.x2) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_2_12345678910_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_2_12345678910_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_2_12345678910_1 (e.x1) (e.x2)>;
+ ('AABA' e.x1) () =  'T';
+ ('ABAAABA' e.x1) () =  'T';
+ (e.x1 'AABAAABA' e.x2) () =  'T';
+ ('AB' e.x1) () =  'T';
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ ('AAA' e.x1) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_3_1234567_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_3_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_3_1234567_1 (e.x1) (e.x2)>;
+ ('AABB' e.x1) () =  'T';
+ (e.x1 'AABBAABB' e.x2) () =  'T';
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_4_123456789_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_4_123456789_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_4_123456789_1 (e.x1) (e.x2)>;
+ ('ABAA' e.x1) () =  'T';
+ ('BAAABAA' e.x1) () =  'T';
+ (e.x1 'ABAAABAA' e.x2) () =  'T';
+ ('BA' e.x1) () =  'T';
+ (e.x1 'ABAABA' e.x2) () =  'T';
+ (e.x1 'ABAB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_5_1235678_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_5_1235678_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_5_1235678_1 (e.x1) (e.x2)>;
+ ('ABAB' e.x1) () =  'T';
+ (e.x1 'ABABABAB' e.x2) () =  'T';
+ ('AABA' e.x1) () =  'T';
+ (e.x1 'ABAABA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_6_123456789101112_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_6_123456789101112_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_6_123456789101112_1 (e.x1) (e.x2)>;
+ ('ABBA' e.x1) () =  'T';
+ ('BBAABBA' e.x1) () =  'T';
+ (e.x1 'ABBAABBA' e.x2) () =  'T';
+ ('BB' e.x1) () =  'T';
+ (e.x1 'ABBABB' e.x2) () =  'T';
+ ('BAB' e.x1) () =  'T';
+ (e.x1 'ABAB' e.x2) () =  'T';
+ ('A' e.x1) () =  'T';
+ (e.x1 'AA' e.x2) () =  'T';
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_7_12345678_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_7_12345678_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_7_12345678_1 (e.x1) (e.x2)>;
+ ('ABBB' e.x1) () =  'T';
+ (e.x1 'ABBBABBB' e.x2) () =  'T';
+ (e.x1 'ABBABB' e.x2) () =  'T';
+ (e.x1 'ABAB' e.x2) () =  'T';
+ (e.x1 'AA' e.x2) () =  'T';
+ ('BBB' e.x1) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ ('B' e.x1) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_8_12345678_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_8_12345678_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_8_12345678_1 (e.x1) (e.x2)>;
+ ('BAAA' e.x1) () =  'T';
+ (e.x1 'BAAABAAA' e.x2) () =  'T';
+ (e.x1 'BAABAA' e.x2) () =  'T';
+ (e.x1 'BABA' e.x2) () =  'T';
+ (e.x1 'BB' e.x2) () =  'T';
+ ('AAA' e.x1) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ ('A' e.x1) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_9_123456789101112_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_9_123456789101112_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_9_123456789101112_1 (e.x1) (e.x2)>;
+ ('BAAB' e.x1) () =  'T';
+ ('AABBAAB' e.x1) () =  'T';
+ (e.x1 'BAABBAAB' e.x2) () =  'T';
+ ('AA' e.x1) () =  'T';
+ (e.x1 'BAABAA' e.x2) () =  'T';
+ ('ABA' e.x1) () =  'T';
+ (e.x1 'BABA' e.x2) () =  'T';
+ ('B' e.x1) () =  'T';
+ (e.x1 'BB' e.x2) () =  'T';
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_10_1235678_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_10_1235678_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_10_1235678_1 (e.x1) (e.x2)>;
+ ('BABA' e.x1) () =  'T';
+ (e.x1 'BABABABA' e.x2) () =  'T';
+ ('BBAB' e.x1) () =  'T';
+ (e.x1 'BABBAB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_11_123456789_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_11_123456789_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_11_123456789_1 (e.x1) (e.x2)>;
+ ('BABB' e.x1) () =  'T';
+ ('ABBBABB' e.x1) () =  'T';
+ (e.x1 'BABBBABB' e.x2) () =  'T';
+ ('AB' e.x1) () =  'T';
+ (e.x1 'BABBAB' e.x2) () =  'T';
+ (e.x1 'BABA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_12_1234567_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_12_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_12_1234567_1 (e.x1) (e.x2)>;
+ ('BBAA' e.x1) () =  'T';
+ (e.x1 'BBAABBAA' e.x2) () =  'T';
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_13_12345678910_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_13_12345678910_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_13_12345678910_1 (e.x1) (e.x2)>;
+ ('BBAB' e.x1) () =  'T';
+ ('BABBBAB' e.x1) () =  'T';
+ (e.x1 'BBABBBAB' e.x2) () =  'T';
+ ('BA' e.x1) () =  'T';
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ ('BBB' e.x1) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_14_1234567_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_14_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_14_1234567_1 (e.x1) (e.x2)>;
+ ('BBBA' e.x1) () =  'T';
+ (e.x1 'BBBABBBA' e.x2) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+CheckQuadAux_15_12378910_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_15_12378910_1 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_15_12378910_1 (e.x1) (e.x2)>;
+ ('BBBB' e.x1) () =  'T';
+ (e.x1 'BBBBBBBB' e.x2) () =  'T';
+ ('BB' e.x1) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+Let_1 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_0_12378910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_0_12378910_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_2 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_1_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_1_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_3 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_2_12345678910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_2_12345678910_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_4 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_3_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_3_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_5 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_4_123456789_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_4_123456789_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_6 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_5_1235678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_5_1235678_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_7 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_6_123456789101112_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_6_123456789101112_1 (e.x1) (e.x2)>;
+ (e.x1 'BBABBA' e.x2) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+Let_8 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_7_12345678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_7_12345678_1 (e.x1) (e.x2)>;
+ ('BBB' e.x1) () =  'T';
+ (e.x1 'BBBBBB' e.x2) () =  'T';
+ ('B' e.x1) () =  'T';
+ (e.x1 'BBBB' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+Let_9 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_8_12345678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_8_12345678_1 (e.x1) (e.x2)>;
+ ('AAA' e.x1) () =  'T';
+ (e.x1 'AAAAAA' e.x2) () =  'T';
+ ('A' e.x1) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+Let_10 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_9_123456789101112_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_9_123456789101112_1 (e.x1) (e.x2)>;
+ (e.x1 'AABAAB' e.x2) () =  'T';
+ (e.x1 'AAAA' e.x2) () =  'T';
+ (e.x1) () =  'T';
+}
+
+
+Let_11 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_10_1235678_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_10_1235678_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_12 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_11_123456789_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_11_123456789_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_13 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_12_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_12_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_14 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_13_12345678910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_13_12345678910_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_15 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_14_1234567_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_14_1234567_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+
+Let_16 {
+ (e.x1) ('A' e.x2) =  <CheckQuadAux_15_12378910_0 (e.x1) (e.x2)>;
+ (e.x1) ('B' e.x2) =  <CheckQuadAux_15_12378910_1 (e.x1) (e.x2)>;
+ (e.x1) () =  'T';
+}
+
+*/

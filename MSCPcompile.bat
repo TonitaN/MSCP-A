@@ -1,4 +1,4 @@
-: Сборка MSCP из исходных текстов.
+: Сборка исполняемых файлов MSCP-A.
 
 refc Unfold_SCP
 refc accessMSCP

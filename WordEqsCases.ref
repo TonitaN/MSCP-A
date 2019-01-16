@@ -9,12 +9,27 @@
 
 /* из модуля Generalize.ref */
 $EXTERN HomeomorphicEmb;
+/* из модуля Generalize.ref */
+$EXTERN IfEquivalentConf;
+/* из модуля Drive.ref */
+$EXTERN TestNegativeBlock, Drive;
 /* из модуля WordEquations.ref */
 $EXTERN IterateWEforPRTCs;
 /* из модуля basics.ref */
-$EXTERN MyZero, TermContradiction,Substitute, LogOr,LogAnd,RenewIndices,Collapse, LessGenericPattern, IsTerm;
+$EXTERN MyZero, TermContradiction,Substitute, LogOr,LogAnd,RenewIndices,Collapse, LessGenericPattern, IsTerm, MyAdd;
+/* из модуля basics.ref */
+$EXTERN FreshIndex, FindNode, GenPath, DeleteNode, ReplaceNode, MyInc, SetIntersect, SetUnion, FindTerm;
 /* из модуля accessMSCP.ref */
-$EXTERN GetEBNewEqs,IsContradictory,GenerateNewEB,ReplaceEBNumericEqs,ReplaceEBNewEqs, GetEBNumericEqs;
+$EXTERN GetEBNewEqs,IsContradictory,GenerateNewEB,ReplaceEBNumericEqs,ReplaceEBNewEqs, GetEBNumericEqs,
+    PutPRTCClash, SubstInAllEqs, GetPRTCClash,
+    GetPRTCAllEqs, ReplacePRTCAllEqs, PutPRTCRestr, DeleteLastPRTCClash, GetPRTCRestrs,
+    GetPRTCNegativeInfo, ReplacePRTCNegativeInfo, GenerateFreshPRTC;
+
+/* из модуля accessMSCP.ref */
+$EXTERN GetNodeEqs, 
+        PutNodeConfig, PutNodeEqs, PutNodeRestrictions, GenerateNewNode, 
+        GetNodeConfig, PutNodeChildren, GetNodeChildren,
+        GetNodeParent, GetNodeWithStatus, GetNodeName, PutNodeStatus, GetNodeStatus;
 
 /*
    $ENTRY Go {= <RenewIndices 'wevale_ind'><RenewIndices 'wevalt_ind'><Open 'w' 1 'buglog'>
@@ -24,6 +39,7 @@ $EXTERN GetEBNewEqs,IsContradictory,GenerateNewEB,ReplaceEBNumericEqs,ReplaceEBN
 	><Close 1>;} 
 */
 
+$ENTRY GoTest { = <Prout <ProcessLinearInequality (((par s 1)(par e 1)) to ((var e 0)'AB'(var e 1)))>>;}
 
 /*
     Функция, разрешающая вопрос о наличии у квадратного уравнения корней.
@@ -48,10 +64,867 @@ IfASolutionExists {
         = <IfASolutionExists (FinishedNode e.Child)>;
 }
 
+/******************************************************
+
+ОБЩАЯ СХЕМА "РАЗВЕРТКИ / СВЕРТКИ" ДЕРЕВА ВЫЧИСЛЕНИЙ
+
+e.Program здесь - для выражений: (обобщенное выражение)(список применимых уравнений)
+Для уравнений e.Program пусто.
+
+*******************************************************/
+
+$ENTRY UnfoldMainEq {
+    (e.Program) Contradiction
+        = False;
+    (e.Program) t.Tree
+    , <SCPTerminationCondition t.Tree> : 
+        { t.FinalTree
+            = <PostAnalysis (e.Program)t.FinalTree>;
+        /* EMPTY */
+            = <UnfoldMainEq (e.Program) <GenUFStep (e.Program) t.Tree>>;
+        };
+}
+
+SCPTerminationCondition {
+    t.Tree
+    , <GetNodeStatus t.Tree> :
+        {
+        (closed with t.Node) = t.Tree;
+        e.Other
+        , <GetNodeWithStatus Improved t.Tree> : (Expression Improved t.Name (e.Pattern)(e.MGUs))
+            = (Expression Improved  t.Name (e.Pattern)(e.MGUs));
+        e.Other
+            = /* EMPTY */;
+        }
+}
+
+PostAnalysis {
+    ((e.Pattern)(e.Eqs))(Expression Improved t.Name (e.NewPattern)(e.MGUs))
+        = <UnfoldMainEq ((e.NewPattern)(e.Eqs))(Expression Undriven (0) (e.MGUs))>;
+    ((e.Pattern)(e.Eqs))(Expression t.Status t.Name (e.MGUs) e.ChData)
+        = (e.Pattern)(e.MGUs);
+    (/* пусто */)t.Tree
+    , <GetFixedOutputs> : 
+    { (t.NodeName t.Format) e.NodeList
+    , <GetNodeParent t.NodeName t.Tree> : t.Node
+        = <ExtractOutFormat ((t.NodeName t.Format) e.NodeList) t.Node t.Tree>;
+    /* EMPTY */
+        = False; /* Если ни одна вершина дерева не содержит тривиального тождества, уравнение не имеет решений. */
+    };
+}
+
+/* Вход - (список пар (имя узла, (выходной формат узла))), узел, дерево. */
+ExtractOutFormat {
+    e.1 = e.1;
+   /* (e.ListFormats) t.Node t.Tree
+    , <>*/
+}
+
+/* Извлечение из дерева всех вершин, содержащих тривиальное тождество. 
+   Вход - список узлов. Выход - список пар (Имя Узла, Пустое множество). */
+GetFixedOutputs {
+    /* EMPTY */ = /* EMPTY */;
+    t.Tree e.OtherNodes
+    , <GetNodeStatus t.Tree> : 
+    {constant
+        = (<GetNodeName t.Tree> (/* EMPTY CONDITION */)) <GetFixedOutputs e.OtherNodes>;
+    (closed with t.OtherNode by e.Assignments)
+        = <GetFixedOutputs e.OtherNodes>;
+    t.OtherStatus
+    , <GetNodeChildren t.Tree> : e.Children
+        = <GetFixedOutputs e.Children e.OtherNodes>;
+    };
+}
+
+GenUFStep {
+/* 1. Проверка, вкладывается ли открытая вершина в какую-либо вершину - предка. Соответствует правилу CLOSE I. */
+    (e.Program) t.Tree
+    , <GetNodeWithStatus open t.Tree> : t.Node
+    , <CheckFolders t.Tree t.Node> :
+        {
+        /* NO FOLDING */
+            = <ReplaceNode t.Tree t.Node <PutNodeStatus t.Node Nonrepeated>>;
+        (t.AncestorNode (e.Assignments))
+        , <ReplaceNode t.Tree t.Node <PutNodeStatus t.Node (closed with <GetNodeName t.AncestorNode> by e.Assignments)>> : t.NewTree
+        , <GetNodeParent t.Node t.NewTree> : /* Здесь по имени извлекается родительский узел, а не по полному совпадению. */ 
+            { 
+            t.Parent
+            , <UpdateNodeStatus ToStart t.Parent> : t.NewParent
+                = <ReplaceNode t.NewTree t.Parent t.NewParent>; /* Правило CLOSE II. */
+            /* NO GRANDPARENT */
+                = t.NewTree;
+            };
+        };
+/* 2. Проверка, обобщается ли какая-либо вершина с вершиной-предком. Соответствует правилу GENERALIZE. 
+    Для уравнений на данный момент предложение никогда не выполняется, поскольку всегда GetGeneralizer = EMPTY. */
+    (e.Program) t.Tree
+    , <GetNodeWithStatus Nonrepeated t.Tree> : t.Node
+    , <GetGeneralizer t.Tree t.Node> :
+        {
+        /* NO GENERALIZING NODE */
+            = <ReplaceNode t.Tree t.Node <PutNodeStatus t.Node checked>>;
+        t.GeneralizingNode
+            = <ReplaceNode t.Tree t.GeneralizingNode <ConstructGeneralization t.GeneralizingNode t.Node>>;
+        };
+/* 3. Выбирается свежая вершина, осуществляется ее развертка. Правило UNFOLD. */
+    (e.Program) t.Tree
+    , <GetNodeWithStatus Undriven t.Tree> : t.Node
+    , (<MetaDrive (e.Program) t.Node>)(<GetNodeParent t.Node t.Tree>) :
+        {
+        (t.ChildNode e.OtherChildren)(t.Parent)
+        , <PutNodeStatus <PutNodeChildren t.Node t.ChildNode e.OtherChildren> open> : t.NewNode
+        , <ReplaceNode <PutNodeStatus t.Parent (closed with <GetNodeName t.Parent>)> t.Node t.NewNode> : t.NewParent
+            = <ReplaceNode t.Tree t.Parent t.NewParent>;
+        (t.ChildNode e.OtherChildren)(/* NO PARENT */)
+            = <PutNodeStatus <PutNodeChildren t.Node t.ChildNode e.OtherChildren> open>;
+        (/* EMPTY SET GENERATED BY DRIVING */)(/* NO PARENT */)
+        , t.Tree :
+            {(Node e.Node) 
+                = Contradiction;
+            (Expression t.Status t.Name t.MGUs)
+                = (Expression (closed with t.Name) t.Name t.MGUs);
+            };
+        (/* EMPTY SET GENERATED BY DRIVING */)(t.Parent)
+        , <PutNodeStatus <DeleteNode t.Parent t.Node> (closed with <GetNodeName t.Parent>)> : t.NewParent
+        , <GetNodeParent t.Parent t.Tree> : 
+            { t.OldGrandPa
+            , <UpdateNodeStatus ToStart <ReplaceNode t.OldGrandPa t.Parent t.NewParent>> : t.GrandPa
+                    = <ReplaceNode t.Tree t.OldGrandPa t.GrandPa>; /* Правило CLOSE II. */
+            /* NO GRANDPARENT */
+                = t.NewParent;
+            };
+        };
+}
+
+UpdateNodeStatus {
+    ToStart t.Node
+    , <GetNodeChildren t.Node> : e.Children
+    , <UpdateNodeStatus Started e.Children> :
+    { 
+        True = <PutNodeStatus t.Node (closed with <GetNodeName t.Node>)>;
+        False = t.Node;
+    };
+    Started /* EMPTY */ = True;
+    Started t.Child e.Other
+    , <GetNodeStatus t.Child> : 
+    {
+        (closed with t.Node) 
+            = <UpdateNodeStatus Started e.Other>;
+        t.Other = False;
+    };
+}
+
+CheckFolders {
+    t.Tree t.Node
+    , <GenPath <GetNodeName t.Node>> : t.First e.PathTail t.Last
+    , t.Node :
+        { (Node e.Data)
+        , <GenPRTC t.Node> : t.NodePRTC
+            =  <CheckFolders Started Equations (e.PathTail)(t.First) t.Tree t.NodePRTC>;
+        (Expression t.Status t.Name (e.MGUs) e.ChData)
+            = <CheckFolders Started MGUs (e.PathTail)(t.First) t.Tree (e.MGUs)>;
+        };
+    Started Equations (e.PathTail)(e.PathPrefix) t.Tree t.NodePRTC
+    , <FindNode (e.PathPrefix)t.Tree> : t.Ancestor
+    , <ReducingRelation t.NodePRTC <GenPRTC t.Ancestor>> :
+    {
+        False
+        , e.PathTail :
+        {
+            /* EMPTY */ = /* EMPTY */;
+            t.First e.PathTail0 
+                = <CheckFolders Started Equations (e.PathTail0)(e.PathPrefix t.First) t.Tree t.NodePRTC>;
+        };     
+        e.Assignments = (t.Ancestor (e.Assignments));        
+    };
+    Started MGUs (e.PathTail)(e.PathPrefix) t.Tree (e.MGUs)
+    , <FindNode (e.PathPrefix)t.Tree> : (Expression t.Status t.Name (e.MGUs0) e.ChData)
+    , <ReducingRelationMGUs (e.MGUs0)(e.MGUs)> :
+    {
+        False
+        , e.PathTail :
+        {
+            /* EMPTY */ = /* EMPTY */;
+            t.First e.PathTail0 
+                = <CheckFolders Started MGUs (e.PathTail0)(e.PathPrefix t.First) t.Tree (e.MGUs)>;
+        };     
+        e.Assignments = ((Expression t.Status t.Name (e.MGUs0)) (e.Assignments));        
+    };
+    t.Tree t.Node = /* EMPTY */;
+}
+
+ReducingRelationMGUs {
+    (e.1)(e.1) = ;
+    (t.1 e.1)(t.1 e.2)
+        = <ReducingRelationMGUs (e.1)(e.2)>;
+    ((assign t.par (e.Expr1)(e.Expr21)) e.Other1)((assign t.par (e.Expr1)(e.Expr22)) e.Other2)
+    , <HomeomorphicEmb (e.Expr21)(e.Expr22)> : 
+        {'F' = False;
+        'T' = <ReducingRelationMGUs (e.Other1)(e.Other2)>;
+        };
+}
+
+/*
+    Функция управления прогонкой уравнения определяет,
+    нужно ли ветвить дочерние узлы по дизъюнкции в блоке отрицательных условий.
+*/
+MetaDrive {
+    (e.Program) t.Node
+    , <GetNodeName t.Node> : t.Name
+    ,  t.Node : 
+    { (Node e.Other)
+        , <GenPRTC t.Node> : t.EqPRTC
+        , <DriveEquation t.EqPRTC> : e.PRTCs
+            = <MetaDrive Started Eqs t.Name 0 (e.PRTCs)>;
+      (Expression t.Status t.Name (e.MGUs))
+      , <GenAllExprs t.Name 0 e.Program(/* No Checked MGUs */)(e.MGUs)>
+      : 
+      {e.SomeNodes (Expression Improved (e.NewPattern)(e.NewMGUs))
+            = (Expression Improved (e.NewPattern)(e.NewMGUs));
+        e.AllNodes
+            = e.AllNodes;
+        };
+    };
+    Started t.Type t.Name t.Num (Zero)
+        = Zero;
+    Started Eqs (e.Name) t.Num (t.PRTC)
+    , <GetPRTCNegativeInfo t.PRTC> : (OR t.Neg1 t.Neg2 e.NegOther)
+    , <ReplacePRTCNegativeInfo t.PRTC t.Neg1> : t.GenPRTC
+    , <GenerateEqualityNodeFromPRTC (e.Name t.Num) t.GenPRTC> : t.NewNode
+    , e.NegOther :
+    { /* EMPTY */
+    , <ReplacePRTCNegativeInfo t.PRTC (t.Neg2)> : t.NewPRTC 
+        = t.NewNode <MetaDrive Started Eqs (e.Name) <MyInc t.Num> (t.NewPRTC)>;
+     e.NonEmpty
+    , <ReplacePRTCNegativeInfo t.PRTC (OR t.Neg2 e.NegOther)> : t.NewPRTC 
+         = t.NewNode <MetaDrive Started Eqs (e.Name) <MyInc t.Num> (t.NewPRTC)>;
+    };
+    Started Eqs (e.Name) t.Num (t.PRTC)
+        = <GenerateEqualityNodeFromPRTC (e.Name t.Num) t.PRTC>;
+    Started t.Type (e.Name) t.Num (Zero e.PRTCs)
+        = <MetaDrive Started t.Type (e.Name) t.Num (e.PRTCs)>;
+    Started t.Type (e.Name) t.Num (t.PRTC e.PRTCs)
+        = <MetaDrive Started t.Type (e.Name) t.Num (t.PRTC)><MetaDrive Started t.Type (e.Name)<MyInc t.Num>(e.PRTCs)>;
+}
+
+GenAllExprs {
+    t.Name s.Counter (e.Pattern)(e.Equations)(e.Checked)(e.MGUs)
+    , e.Equations :
+    { /* EMPTY */ = /* EMPTY */;
+    (AreEqual (s.Log)(e.LHS)(e.RHS)) e.OtherEqs
+    , e.MGUs :
+        { /* EMPTY */ = <GenAllExprs t.Name s.Counter (e.Pattern)(e.OtherEqs)(/* NO Checked MGUs*/)(e.Checked)>;
+        t.MGU e.OtherMGUs
+        , <ApplyEqToMGU (e.Pattern)(e.OtherEqs)(AreEqual (s.Log)(e.LHS)(e.RHS))(e.Checked)(e.OtherMGUs)t.MGU>
+        <ApplyEqToMGU (e.Pattern)(e.OtherEqs)(AreEqual (s.Log)(e.RHS)(e.LHS))(e.Checked)(e.OtherMGUs) t.MGU> :
+            { t.NewMGU e.PossibleMGUs
+            , <GenerateNewMGUExprNodes t.Name s.Counter t.NewMGU e.PossibleMGUs> :
+                {e.Simple (Expression Improved e.Success)
+                    = (Expression Improved e.Success);
+                e.Simple s.NewCounter
+                    = e.Simple <GenAllExprs t.Name s.NewCounter(e.Pattern)(e.Equations)(e.Checked t.MGU)(e.OtherMGUs)>;
+                };
+            /* EMPTY */ = <GenAllExprs t.Name s.Counter (e.Pattern)(e.Equations)(e.Checked t.MGU)(e.OtherMGUs)>;
+            };
+        };
+    };
+}
+
+GenerateNewMGUExprNodes {
+    (e.Name) s.Counter e.0 (Improved (e.NewPattern)t.NewMGUs) e.Rest
+        = (Expression Improved (e.Name 0) (e.NewPattern) t.NewMGUs);
+    (e.Name) s.Counter(Simple (e.Pattern)t.NewMGUs )e.Rest
+        = (Expression Undriven (e.Name s.Counter) t.NewMGUs)<GenerateNewMGUExprNodes (e.Name) <MyAdd s.Counter 1> e.Rest>;
+    (e.Name) s.Counter /* NO MORE NEW MGUS */ = s.Counter;
+}
+
+/*
+    Применение уравнения как правила переписывания (слева направо) к парной подстановке.
+    Применяется только ко второй части парной подстановки, и слева, и справа (но не по центру).
+*/
+ApplyEqToMGU {
+    (e.Pattern)(e.OtherEqs)(AreEqual (s.Log)(e.Expr (par e.data))((par e.data) e.Expr))(e.Checked)(e.OtherMGUs)
+    (assign t.newpar (e.Expr1)(e.Expr2))
+    , e.Expr2 : e.Expr2Prefix (par e.data)(par e e.othername) e.Expr2Suffix
+    , e.OtherEqs : e.1 (AreEqual (s.Log)(e.Expr (par e e.othername))((par e e.othername) e.Expr)) e.2
+        = <CheckEqMGUApplication 0 (e.Pattern)(e.Checked (assign t.newpar (e.Expr1)(e.Expr2Prefix (par e e.othername)(par e.data) e.Expr2Suffix)) e.OtherMGUs)>;
+    (e.Pattern)(e.OtherEqs)(AreEqual (s.Log)(e.Expr (par e.data))((par e.data) e.Expr))(e.Checked)(e.OtherMGUs)
+    (assign t.newpar (e.Expr1)(e.Expr2))
+    , e.Expr2 : e.Expr2Prefix (par e e.othername)(par e.data) e.Expr2Suffix
+    , e.OtherEqs : e.1 (AreEqual (s.Log)(e.Expr (par e e.othername))((par e e.othername) e.Expr)) e.2
+        = <CheckEqMGUApplication 0 (e.Pattern)(e.Checked (assign t.newpar (e.Expr1)(e.Expr2Prefix (par e.data)(par e e.othername) e.Expr2Suffix)) e.OtherMGUs)>;
+    (e.Pattern)(e.OtherEqs)(AreEqual (s.Log)(e.LHS)(e.RHS))(e.Checked)(e.OtherMGUs)(assign t.newpar (e.Expr1)(e.Expr2))
+    , e.Expr2 : e.LHS e.Expr2Suffix
+    , <CheckEqMGUApplication 0 (e.Pattern)(e.Checked (assign t.newpar (e.Expr1)(e.RHS e.Expr2Suffix)) e.OtherMGUs)> : t.Application
+    , e.Expr2 : 
+        {e.Expr2Prefix e.LHS
+            = t.Application <CheckEqMGUApplication 0 (e.Pattern)(e.Checked (assign t.newpar (e.Expr1)(e.Expr2Prefix e.RHS)) e.OtherMGUs)>;
+        e.Other = t.Application;
+        };
+    (e.Pattern)(e.OtherEqs)(AreEqual (s.Log)(e.LHS)(e.RHS))(e.Checked)(e.OtherMGUs)(assign t.newpar (e.Expr1)(e.Expr2))
+    , e.Expr2 : 
+        { e.Expr2Prefix e.LHS
+            = <CheckEqMGUApplication 0 (e.Pattern)(e.Checked (assign t.newpar (e.Expr1)(e.Expr2Prefix e.RHS)) e.OtherMGUs)>;
+        e.Z = /* EMPTY */;
+        };
+}
+
+/*
+    Проверка, можно ли посредством данных (перемененных) подстановок улучшить обобщение.
+*/
+CheckEqMGUApplication {
+    s.Flag (e.Pattern)(e.MGUs0 (assign t.newpar (e.Expr)(e.Expr)) e.MGUs1)
+        = (Improved (<Substitute ((assign t.newpar)(e.Expr)) e.Pattern>)(e.MGUs0 e.MGUs1));
+    s.Flag (e.Pattern)(e.MGUs0 (assign t.newpar (s.0 e.Expr1)(s.0 e.Expr2)) e.MGUs1)
+    , t.newpar :
+    {(par e t.name)
+    , <FreshIndex 'pare_ind'> : t.newname
+        = <CheckEqMGUApplication 1 
+            (<Substitute (assign t.newpar (s.0 (par e t.newname)))e.Pattern>)
+            (e.MGUs0 (assign (par e t.newname)(e.Expr1)(e.Expr2)) e.MGUs1)
+        >;
+    e.Other
+        = (Improved (<Substitute ((assign t.newpar (s.0))) e.Pattern>)(e.MGUs0 e.MGUs1));
+    };
+    s.Flag (e.Pattern)(e.MGUs0 (assign t.newpar (e.Expr1 s.0)(e.Expr2 s.0)) e.MGUs1)
+    , <FreshIndex 'pare_ind'> : t.newname
+        = <CheckEqMGUApplication 1 
+            (<Substitute ((assign t.newpar ((par e t.newname) s.0))) e.Pattern>)
+            (e.MGUs0 (assign (par e t.newname)(e.Expr1)(e.Expr2)) e.MGUs1)
+        >;
+    s.Flag (e.Pattern)(e.MGUs0 (assign t.newpar e.Pair) e.MGUs1 (assign t.othernewpar e.Pair) e.MGUs2)
+        = (Improved 
+            (<Substitute ((assign t.othernewpar(t.newpar))) e.Pattern>)
+            (e.MGUs0 (assign t.newpar e.Pair) e.MGUs1 e.MGUs2)
+        );
+    s.Flag (e.Pattern)(e.MGUs)
+    , s.Flag :
+        {0 = (Simple (e.Pattern)(e.MGUs));
+        1 = (Improved (e.Pattern)(e.MGUs));
+        };
+}
+
+GenerateEqualityNodeFromPRTC {
+    t.NodeName t.PRTC
+    , <GetPRTCRestrs t.PRTC> : e.Restrs
+    , <GetPRTCAllEqs t.PRTC> : e.Eqs
+    , <PutNodeRestrictions <PutNodeEqs <GenerateNewNode t.NodeName> e.Eqs> e.Restrs> : t.NodeBlank
+    , <GetPRTCClash t.PRTC> : 
+    {
+        (e.LHS) to (e.RHS)
+            = <PutNodeConfig t.NodeBlank (call Equal (args (arg e.LHS)(arg e.RHS)))>;
+        /* EMPTY */
+            = <PutNodeStatus t.NodeBlank constant>;
+    };
+}
+
+GenPRTC {
+    t.Node
+    , <GetNodeConfig t.Node> : (call Equal (args (arg e.LHS)(arg e.RHS)))
+    , <GetNodeEqs t.Node> : e.Eqs
+    , <GetNodeName t.Node> : t.Name
+    , <ReplacePRTCAllEqs <GenerateFreshPRTC (e.LHS) to (e.RHS)> e.Eqs> : t.EqPRTC
+        = t.EqPRTC;
+}
+
+/* 
+
+На входе алгоритма DriveEquation --- нормальная форма квадратичного уравнения.
+
+Левая часть содержит хотя бы два терма.
+Нет повторных термов с начала и конца в двух частях.
+Правая часть не является единственной е-переменной.
+
+*/
+
+DriveEquation {
+/* 1. e.x\Phi = \empty */
+    t.EqPRTC
+    , <GetPRTCClash t.EqPRTC> : ((weval e t.Name) e.Other) to (/* EMPTY */)
+    , (assign (weval e t.Name)(/* EMPTY */)) : t.NewRestr
+    , <SubstituteInEqPRTC (t.NewRestr) t.EqPRTC> : t.NewEqPRTC 
+        = t.NewEqPRTC;
+/* 2. e.x\Phi = e.y \Psi */
+    t.EqPRTC
+    , <GetPRTCClash t.EqPRTC> :((weval e t.X)e.LHS) to ((weval e t.Y)e.RHS)
+    , (assign (weval e t.X)((weval e t.Y))) : t.EquRestr
+    , <SubstituteInEqPRTC (t.EquRestr)t.EqPRTC> : t.EquCase
+    , <FreshIndex 'wevale_ind'> : t.X1
+    , <FreshIndex 'wevale_ind'> : t.Y1
+    , <FreshIndex 'wevalt_ind'> : t.NewT
+        , e.RHS :
+        {(weval e t.Z) e.OtherRHS
+        , (assign (weval e t.X)((weval e t.Y)(weval t t.NewT)(weval e t.X1))) : t.RightPrefRestr
+        , <SubstituteInEqPRTC (t.RightPrefRestr)t.EqPRTC> : t.RightPrefCase
+        , e.LHS :
+            { (weval e t.W) e.OtherLHS
+            , (assign (weval e t.Y)((weval e t.X)(weval t t.NewT)(weval e t.Y1))) : t.LeftPrefRestr
+            , <SubstituteInEqPRTC (t.LeftPrefRestr)t.EqPRTC> : t.LeftPrefCase
+                = t.EquCase t.RightPrefCase t.LeftPrefCase;
+            t.SymbolTerm e.OtherLHS
+            , (assign (weval e t.Y)((weval e t.X)t.SymbolTerm(weval e t.Y1))) : t.LeftPrefRestr
+            , <SubstituteInEqPRTC (t.LeftPrefRestr)t.EqPRTC> : t.LeftPrefCase
+                = t.EquCase t.RightPrefCase t.LeftPrefCase;
+            };
+        t.SymbolTerm e.OtherRHS
+        , (assign (weval e t.X)((weval e t.Y) t.SymbolTerm (weval e t.X1))) : t.RightPrefRestr
+        , <SubstituteInEqPRTC (t.RightPrefRestr)t.EqPRTC> : t.RightPrefCase
+        , e.LHS :
+            { (weval e t.W) e.OtherLHS
+            , (assign (weval e t.Y)((weval e t.X)(weval t t.NewT)(weval e t.Y1))) : t.LeftPrefRestr
+            , <SubstituteInEqPRTC (t.LeftPrefRestr)t.EqPRTC> : t.LeftPrefCase
+                = t.EquCase t.RightPrefCase t.LeftPrefCase;
+            t.SymbolTerm1 e.OtherLHS
+            , (assign (weval e t.Y)((weval e t.X)t.SymbolTerm1 (weval e t.Y1))) : t.LeftPrefRestr
+            , <SubstituteInEqPRTC (t.LeftPrefRestr)t.EqPRTC> : t.LeftPrefCase
+                = t.EquCase t.RightPrefCase t.LeftPrefCase;
+            };
+        };
+        
+/* 3.  e.x \Phi = t.Symbolic \Psi */            
+    t.EqPRTC
+    , <GetPRTCClash t.EqPRTC> :((weval e t.X)e.LHS) to (t.Sym e.RHS)
+    , (assign (weval e t.X)(/* EMPTY */)) : t.EmptyRestr
+    , <SubstituteInEqPRTC (t.EmptyRestr)t.EqPRTC> : t.EmptyCase
+    , <FreshIndex 'wevale_ind'> : t.X1
+    , (assign (weval e t.X)(t.Sym (weval e t.X1))) : t.NonEmptyRestr
+    , <SubstituteInEqPRTC (t.NonEmptyRestr)t.EqPRTC> : t.NonEmptyCase
+        = t.EmptyCase t.NonEmptyCase;
+    
+/* 4.  t.Symbolic \Phi = e.x \Psi */            
+    t.EqPRTC
+    , <GetPRTCClash t.EqPRTC> :(t.Sym e.LHS) to ((weval e t.X) e.RHS)
+    , (assign (weval e t.X)(/* EMPTY */)) : t.EmptyRestr
+    , <SubstituteInEqPRTC (t.EmptyRestr) t.EqPRTC> : t.EmptyCase
+    , <FreshIndex 'wevale_ind'> : t.X1
+    , (assign (weval e t.X)(t.Sym (weval e t.X1))) : t.NonEmptyRestr
+    , <SubstituteInEqPRTC (t.NonEmptyRestr) t.EqPRTC> : t.NonEmptyCase
+        = t.EmptyCase t.NonEmptyCase;
+
+/* 5.  t.x \Phi = t.Symbolic \Psi */            
+    t.EqPRTC
+    , <GetPRTCClash t.EqPRTC> :((weval t t.X)e.LHS) to (t.Sym e.RHS)
+    , (assign (weval t t.X)(t.Sym)) : t.TermRestr
+    , <SubstituteInEqPRTC (t.TermRestr)t.EqPRTC> : t.TermCase
+        = t.TermCase;
+
+/* 6.  t.Symbolic \Phi = t.x \Psi. С учетом предложения 5, t.Symbolic - только символ. */            
+    t.EqPRTC
+    , <GetPRTCClash t.EqPRTC> :(t.Sym e.LHS) to ((weval t t.X) e.RHS)
+    , (assign (weval t t.X)(t.Sym)) : t.TermRestr
+    , <SubstituteInEqPRTC (t.TermRestr)t.EqPRTC> : t.TermCase
+        = t.TermCase;
+}
+
+$ENTRY ProcessLinearInequality {
+/* 0-а. Тривиальные случаи: сопоставление с пустотой или единственным е-параметром. */
+    ((/* EMPTY */) to (t.AnyThing1 t.AnyThing2 e.Pattern)) = True;
+    ((t.1 e.Expr) to (t.1 e.Z)) = <ProcessLinearInequality ((e.Expr) to (e.Z))>;
+    ((e.Expr) to ((var e t.name))) = False;
+    ((e.Expr) to (e.Expr)) = False;
+    (((t.type e t.name) e.Other) to (t.Sym))
+        = <ConvertToDNF (OR (((t.type e t.name)) to (t.Sym))<ProcessLinearInequality ((e.Other) to (/* EMPTY */))>)>;
+    (((t.type e t.name)) to (e.Pattern)) = (((t.type e t.name)) to (e.Pattern));
+    ((t.Sym) to ((var t.other t.name))) = False;
+    (((t.type t.sort t.name)) to (t.Term)) = (((t.type t.sort t.name)) to (t.Term));
+    (((t.type e t.name) e.Other) to (/* EMPTY */))
+        = <ConvertToDNF (OR (((t.type e t.name)) to (/* EMPTY*/)) <ProcessLinearInequality ((e.Other) to (/* EMPTY*/))>)>;
+    ((e.WithObject) to (/* EMPTY*/)) = True;
+    /* 0-б. Тривиальные случаи: всегда успешное сопоставление. */
+    /* 1. Образец, сопоставление с которым запрещено, содержит с двух краев e-переменные. */
+    ((s.Sym e.Other) to (e.Pattern))
+    , e.Pattern : (var e t.x)e.Middle (var e t.y)
+    , <ProcessLinearInequality ((e.Other) to (e.Pattern))> : e.CommonNegative
+    , e.Middle :
+        { s.Sym e.Rest = <ConvertToDNF e.CommonNegative <ProcessLinearInequality ((e.Other) to (e.Rest (var e t.y)))>>; 
+         (t.type t t.name) e.Rest = <ConvertToDNF e.CommonNegative (OR (((t.type t t.name)) to (s.Sym))<ProcessLinearInequality ((e.Other) to (e.Rest (var e t.y)))>)>;
+         e.Z = e.CommonNegative;
+         };
+    (((t.type t.sort t.name) e.Other) to (e.Pattern))
+    , <FindTerm t.sort t s> : 'T'
+    , e.Pattern : (var e t.x) e.Middle (var e t.y)
+    , <ProcessLinearInequality ((e.Other) to (e.Pattern))> : e.CommonNegative
+    , e.Middle :
+        { s.Sym e.Rest
+            = <ConvertToDNF 
+                e.CommonNegative 
+                (OR (((t.type t.sort t.name)) to (s.Sym)) 
+                    <ProcessLinearInequality ((e.Other) to (e.Rest (var e t.y)))>)
+            >; 
+         (t.type t.sort t.name) e.Rest
+             = <ConvertToDNF e.CommonNegative <ProcessLinearInequality ((e.Other) to (e.Rest (var e t.y)))>>;
+         (t.othertype t.othersort t.OtherName) e.Rest
+             = <ConvertToDNF 
+                 e.CommonNegative 
+                 (OR 
+                 <ProcessLinearInequality (((t.type t.sort t.name)) to ((t.othertype t.othersort t.OtherName)))> 
+                 <ProcessLinearInequality ((e.Other) to (e.Rest (var e t.y)))>)>;
+         };
+    (((t.type e t.name) e.Other) to (e.Pattern))
+    , e.Pattern : (var e t.x)e.Middle (var e t.y)
+    , <ProcessLinearInequality ((e.Other) to (e.Pattern))> : e.CommonNegative
+    , <GenerateMiddleEqs ((t.type e t.name) e.Other)((var e t.x)) e.Middle (var e t.y)> : e.OrNegative
+        = <ConvertToDNF e.CommonNegative <ConvertToDNF e.OrNegative <ProcessLinearInequality (((t.type e t.name)) to (e.Pattern))>>>;
+/*2. Образец, сопоставление с которым запрещено, содержит справа e-переменную.*/
+    ((s.Sym e.Other) to (e.Pattern))
+    , e.Pattern : t.First e.Middle (var e t.y)
+    , t.First :
+        { s.Sym = <ProcessLinearInequality ((e.Other) to (e.Middle (var e t.y)))>; 
+         (t.type t.sort t.name)
+             = <ConvertToDNF 
+                 (OR 
+                     (((t.type t.sort t.name)) to (s.Sym))
+                     <ProcessLinearInequality ((e.Other) to (e.Middle (var e t.y)))>)>;
+         s.Z = True;
+         };
+    (((t.type t.sort t.name) e.Other) to (e.Pattern))
+    , <FindTerm t.sort t s> : 'T'
+    , e.Pattern : t.First e.Middle (var e t.y)
+    , <ProcessLinearInequality ((e.Other) to (e.Middle (var e t.y)))> : e.CommonNegative
+    , t.First :
+        {(t.type t.sort t.name) = e.CommonNegative; 
+         s.Sym = <ConvertToDNF (OR (((t.type t.sort t.name)) to (s.Sym)) e.CommonNegative)>;
+         (t.othertype t.othersort t.OtherName)
+             = <ConvertToDNF (OR 
+                 <ProcessLinearInequality (((t.type t.sort t.name)) to ((t.othertype t.othersort t.OtherName)))>
+                 e.CommonNegative)>;
+         };
+    (((t.type e t.name) e.Other) to (e.Pattern))
+    , e.Pattern : t.First e.Middle (var e t.y)
+    , <ProcessLinearInequality (((t.type e t.name)) to (e.Pattern))> : e.CommonNegative
+    , <FindFreeVar Begin e.Pattern> : 
+    { (e.Beginning)((var e t.y))
+         = e.CommonNegative;
+    (e.Beginning)(e.End)
+         = <ConvertToDNF 
+             e.CommonNegative 
+             (OR 
+                 <ProcessLinearInequality (((t.type e t.name)) to (e.Beginning))>
+                 <ProcessLinearInequality ((e.Other) to (e.End))>)>;
+    };
+/*3. Образец, сопоставление с которым запрещено, содержит слева e-переменную.*/
+    ((s.Sym e.Other) to (e.Pattern))
+    , e.Pattern : (var e t.x) e.Middle
+    , <ProcessLinearInequality ((e.Other) to (e.Pattern))> : e.CommonNegative
+    , e.Middle :
+        { s.Sym e.Rest = <ConvertToDNF e.CommonNegative <ProcessLinearInequality ((e.Other) to (e.Rest))>>; 
+         (t.type t.sort t.name) e.Rest = <ConvertToDNF e.CommonNegative (OR ((t.type t.sort t.name) to (s.Sym))<ProcessLinearInequality ((e.Other) to (e.Rest))>)>;
+         e.Z = e.CommonNegative;
+         };
+    (((t.type t.sort t.name) e.Other) to (e.Pattern))
+    , <FindTerm t.sort t s> : 'T'
+    , e.Pattern : (var e t.x)e.Middle
+    , <ProcessLinearInequality ((e.Other) to (e.Pattern))> : e.CommonNegative
+    , e.Middle :
+        { s.Sym e.Rest = <ConvertToDNF e.CommonNegative (OR ((t.type t.sort t.name) to (s.Sym)) <ProcessLinearInequality ((e.Other) to (e.Rest))>)>; 
+         (t.type t.sort t.name) e.Rest = <ConvertToDNF e.CommonNegative <ProcessLinearInequality ((e.Other) to (e.Rest))>>;
+         (t.othertype t.othersort t.OtherName) e.Rest
+             = <ConvertToDNF 
+                 e.CommonNegative 
+                 (OR <ProcessLinearInequality ((t.type t.sort t.name) to (t.othertype t.othersort t.OtherName))> 
+                 <ProcessLinearInequality ((e.Other) to (e.Rest))>)>; /* Здесь важно, что не может быть двух e-переменных либо параметров подряд.*/
+         };
+    (((t.type e t.name) e.Other) to (e.Pattern))
+    , e.Pattern : (var e t.x)e.Middle
+    , <ProcessLinearInequality ((e.Other) to (e.Pattern))> : e.CommonNegative
+    , <FindFreeVar End e.Pattern> :
+    {((var e t.x))(e.Pattern)
+        = <ConvertToDNF e.CommonNegative <ProcessLinearInequality (((t.type e t.name)) to (e.Pattern))>>;
+    (e.Beginning)(e.End)
+        = <ConvertToDNF 
+            e.CommonNegative 
+            (OR <ProcessLinearInequality (((t.type e t.name)) to (e.Beginning))>
+                <ProcessLinearInequality((e.Other) to (e.End))>)>;
+    };
+/*4. Образец, сопоставление с которым запрещено, слева и справа содержит символы или термовые переменные.*/
+    ((s.Sym e.Other) to (e.Pattern))
+    , e.Pattern : t.First e.Middle
+    , t.First :
+        { s.Sym = <ProcessLinearInequality ((e.Other) to (e.Middle))>; 
+         (t.type t t.name) = <ConvertToDNF (OR (((t.type t t.name)) to (s.Sym))<ProcessLinearInequality ((e.Other) to (e.Middle))>)>;
+         s.Z = True;
+         };
+    (((t.type t.sort t.name) e.Other) to (e.Pattern))
+    , <FindTerm t.sort t s> : 'T'
+    , e.Pattern : t.First e.Middle
+    , <ProcessLinearInequality ((e.Other) to (e.Middle))> : e.CommonNegative
+    , t.First :
+        {(t.type t.sort t.name) = e.CommonNegative; 
+         s.Sym = <ConvertToDNF (OR (((t.type t.sort t.name)) to (s.Sym)) e.CommonNegative)>;
+         (t.othertype t.othersort t.OtherName)
+             = <ConvertToDNF 
+                 (OR 
+                     <ProcessLinearInequality (((t.type t.sort t.name)) to ((t.othertype t.othersort t.OtherName)))> 
+                     e.CommonNegative)>;
+         };
+    (((t.type e t.name) e.Other) to (e.Pattern))
+    , e.Pattern : t.First e.Middle
+    , <ProcessLinearInequality (((t.type e t.name)) to (e.Pattern))> : e.CommonNegative
+    , <FindFreeVar Begin e.Pattern> : (e.Beginning)(e.AfterBeginning)
+    , <FindFreeVar End e.Pattern> : (e.BeforeEnd)(e.End)
+        = <ConvertToDNF (OR 
+            <ProcessLinearInequality (((t.type e t.name)) to (e.Beginning))>
+            <ProcessLinearInequality (((t.type e t.name)) to (e.BeforeEnd))>
+            <ProcessLinearInequality ((e.Other) to (e.AfterBeginning))>
+        )
+        (OR 
+            <ProcessLinearInequality ((e.Other) to (e.End))>
+            <ProcessLinearInequality (((t.type e t.name)) to (e.BeforeEnd))>
+            <ProcessLinearInequality ((e.Other) to (e.AfterBeginning))>
+        )>;
+}
+
+FindFreeVar {
+    Begin e.Start (var e t.name) e.Rest 
+        = (e.Start (var e t.name))((var e t.name) e.Rest);
+    End e.Rest (var e t.name) e.End
+    , <NoEVar (e.End)> : True
+        = (e.Rest (var e t.name))((var e t.name) e.End);
+}
+
+NoEVar {
+    e.1 (var e t.name) e.2 = False;
+    e.Z = True;
+}
+
+GenerateMiddleEqs {
+    ((t.type e t.name) e.Other )((var e t.x) e.Proc)e.P1 (var e t.z) e.P2 (var e t.y)
+        = /* EMPTY */;
+
+    ((t.type e t.name) e.Other )((var e t.x) e.Proc) t.new t.oneMore e.Pattern (var e t.y)
+        = <ConvertToDNF 
+            (OR 
+                (((t.type e t.name)) to ((var e t.x) e.Proc t.new))
+                <ProcessLinearInequality ((e.Other) to (t.oneMore e.Pattern (var e t.y)))>
+            )
+            <GenerateMiddleEqs ((t.type e t.name) e.Other)((var e t.x) e.Proc t.new) t.oneMore e.Pattern (var e t.y)>>;
+    ((t.type e t.name) e.Other )((var e t.x) e.Proc) e.ShortPattern (var e t.y) = /* EMPTY */;
+}
+
+ReducingRelation {
+    t.PRTC1 t.PRTC2 /* Вторая конфигурация --- конфигурация предка. */
+    , <GetRenaming <GetPRTCClash t.PRTC1><GetPRTCClash t.PRTC2>> : (e.Assignments) /* Есть переименовка параметров конфиг. потомка в параметры конфиг. предка. */
+    , <ReducingEqs (e.Assignments)<GetPRTCAllEqs t.PRTC1><GetPRTCAllEqs t.PRTC2>> : True
+        = e.Assignments;
+    t.PRTC1 t.PRTC2 = False;
+}
+
+/*
+    Предикат сравнения систем уравнений по сводимости.
+    Второй аргумент - уравнения, которые нужно свести к уравнениям третьего аргумента.
+    Первый аргумент - сводящая подстановка !! здесь - всегда переименовка !!
+    Подразумевается, что все уравнения в системе (пассивные, которые на очереди на решение) находятся в сумке Generic.
+    Также подразумевается, что все уравнения Numeric выводимы из соответствующих Generic уравнений, поэтому их сравнивать не нужно.
+    Сумка Grammar пока игнорируется.
+*/
+ReducingEqs {
+    (e.Assignments)
+    ((New e.NewEqChild)(Grammar e.RegEqChild)(Negative e.NegEqChild)(Numeric e.NumEqChild)(Generic e.GenEqChild))
+    ((New e.NewEq)(Grammar e.RegEq)(Negative e.NegEq)(Numeric e.NumEq)(Generic e.GenEq))
+    , <Substitute (e.Assignments) e.GenEqChild> : e.GenEqToCheck
+    , <Substitute (e.Assignments) e.NegEqChild> : e.NegEqToCheck
+    , <ImplyEqs (e.GenEq)(e.GenEqToCheck)> : True
+    , <ImplyNEqs (e.NegEq)(e.NegEqToCheck)> : True
+        = True;
+    (e.Assignments)(e.EqSystem1)(e.EqSystem2) = False;
+}
+
+ImplyEqs {
+    (t.Eq e.Eqs)(e.Eqs1 t.Eq e.Eqs2) = <ImplyEqs (e.Eqs)(e.Eqs1 e.Eqs2)>;
+    (/* EMPTY */)(/* EMPTY */) = True;
+    (e.Eq)(e.EqToCheck) = False;
+    
+}
+
+$ENTRY ImplyNEqs {
+    (e.Neqs)(e.NegEqToCheck)
+        = <ImplyNEqs Started (e.NegEqToCheck)(/*NO CHECKED INEQUALITIES */)(e.Neqs)(e.NegEqToCheck)>;
+    Started (e.AllNegEqToCheck)(e.Checked)(e.Neqs)(t.NN e.NegEqToCheck)
+    , <OneNeqImpliesNEqs t.NN e.Neqs> : e.NewChecked
+    , <SetUnion (e.Checked)(e.NewChecked)> : (e.NextChecked)
+        = <ImplyNEqs Started (e.AllNegEqToCheck)(e.NextChecked)(e.Neqs)(e.NegEqToCheck)>;
+    Started (e.AllNegEqToCheck)(e.Checked)(e.Neqs)(/* NO MORE TO IMPLY */)
+    , <SetIntersect (e.Checked)(e.AllNegEqToCheck)> :
+        {(e.AllNegEqToCheck)
+            = 'T' e.Checked;
+        e.Other
+            = 'F' e.Checked;
+        };
+}
+
+GetSingleInfo {
+    t.Ineq
+    , t.Ineq : 
+        {(OR (s.Log)((t.par) to (e.Pattern)))
+            = t.Ineq;
+        (OR (s.Log)((e.LHS) to (e.RHS)))
+        , <ProcessLinearInequality ((e.LHS) to (e.RHS))> : ((e.NewLHS) to (e.NewRHS)) 
+            = (OR (s.Log)((e.NewLHS) to (e.NewRHS)));
+        e.Alternatives = (OR ('T')((  ) to ('B')));
+        };
+}
+
+/*
+    Вариант, когда неравенства проверяются на эквивалентность.
+    Проверка, не является ли второе множество неравенств переименовкой первого.
+*/
+OneNeqImpliesNEqs {
+    (OR (s.Log)((e.Expr) to (e.Pattern))) e.NegEqToCheck
+    , <Drive 'T' ( )<ReplacePRTCNegativeInfo <GenerateFreshPRTC ((e.Expr) to (e.Pattern))> e.NegEqToCheck>> : 
+        {
+            /* EMPTY */ = (OR (s.Log)((e.Expr) to (e.Pattern)));
+            e.Something = /* EMPTY */;
+        };
+    (e.NegEq) /* EMPTY */ = /* EMPTY */; 
+    t.Other e.Arbitrary = /* EMPTY */;
+}
+
+/*
+    Если 
+*/
+LinNeqIsImplied {
+    (OR (s.Log)((t.par) to (e.Condition1)))(e.Condition2)
+    , <HomeomorphicEmb (e.Condition1) e.Condition2> :
+        {'T'
+        , <ReplacePRTCNegativeInfo 
+            <PutPRTCRestr  
+                <GenerateFreshPRTC (() to ())>
+                (assign t.par (<ChangeVarsToPars e.Condition2>))
+            >
+        (OR (s.Log)((t.par) to (e.Condition1)))> : t.TestPRTC
+        , <TestNegativeBlock t.TestPRTC> :
+            { /* EMPTY */ = 'T';
+              e.SomeData = 'F';
+            };
+        'F'
+            = 'F';
+        };
+}
+
+ChangeVarsToPars {
+    e.1(var s.type t.name) e.2 = e.1 (par s.type (N <FreshIndex 'pare_ind'>)) <ChangeVarsToPars e.2>;
+    e.Z = e.Z;
+}
+
+/*
+    Проверка, являются ли все присваивания в сумке присваиваниями e-переменных.
+    Здесь - именно переменных, поскольку вызывается функция при проверке негативных образцов.
+*/
+EVarAsgs {
+    (e.1 (assign (t.class t t.name)(e.Val)) e.2) = False;
+    (e.EAsgs) = True;
+}
+
+IsLinearRenaming {
+    (e.Asgs)(t.1 e.1)(t.1 e.2) = <IsLinearRenaming (e.Asgs)(e.1)(e.2)>;
+    (e.Asgs)((t.class e t.name1) e.1)((t.class e t.name2) e.2)
+    , (assign (t.class e t.name1)((t.class e t.name2))) : t.NewAsg
+        = (e.Asgs t.NewAsg)(<Substitute (t.NewAsg)e.1>)(e.2);
+    (e.Asgs)(/* EMPTY */)(/* EMPTY */) = (e.Asgs);
+    (e.Asgs)(e.1)(e.2) = False;
+}
+
+/*
+    Дана логическая формула, содержащая выражения с & и v, но без внешних отрицаний.
+    Привести ее к ДНФ.
+*/
+ConvertToDNF {
+    e.1 False e.2 = False;
+    e.1 True e.2 = <ConvertToDNF e.1 e.2>;
+    e.01 (OR e.1 True e.2) e.02 = <ConvertToDNF e.01 e.02>;
+    e.01 (OR t.Term) e.02 = <ConvertToDNF e.01 t.Term e.02>;
+    e.01 (OR e.1 False e.2) e.02 = <ConvertToDNF e.01 (OR e.1 e.2) e.02>;
+    e.1 t.1 e.2 t.1 e.3 = <ConvertToDNF e.1 t.1 e.2 e.3>;
+    e.01 (OR e.1 t.1 e.2 t.1 e.3) e.02 = <ConvertToDNF e.01 (OR e.1 t.1 e.2 e.3) e.02>;
+    e.01 (OR /* EMPTY */) e.02 = False;
+    e.01 (OR e.1 (OR e.2) e.3) e.02 = <ConvertToDNF e.01 (OR e.1 e.2 e.3) e.02>;
+    (OR e.Disjunction) /* EMPTY */ = (OR e.Disjunction);
+    (OR t.Term1 e.Disjunct1)(OR e.Disjunct2)
+        = <ConvertToDNF (OR <ConvertToDNF t.Term1 (OR e.Disjunct2)> <ConvertToDNF (OR e.Disjunct1)(OR e.Disjunct2)>)>;
+    e.Conjunct (OR t.Term e.Disjunct1)
+        = <ConvertToDNF (OR (e.Conjunct t.Term)<ConvertToDNF (OR <ConstructPairs e.Conjunct (e.Disjunct1)>)>)>;
+    (OR t.Term e.Disjunct1) e.Conjunct
+        = <ConvertToDNF (OR (e.Conjunct t.Term) <ConvertToDNF (OR <ConstructPairs e.Conjunct (e.Disjunct1)>)>)>;
+    e.Conjunct = e.Conjunct;
+}
+
+ConstructPairs {
+    e.Conjunct (t.DU e.Other) = (e.Conjunct t.DU)<ConstructPairs e.Conjunct (e.Other)>;
+    e.Conjunct ( ) = /* EMPTY */;
+}
+
+/*
+    Заглушка: считаем, что в процессе развертки уравнений обобщение никогда не строится.
+*/
+GetGeneralizer {
+    e.x = /* EMPTY */;
+}
+
+ConstructGeneralization {
+    e.x = e.x;
+}
+
+GetRenaming {
+    ((e.LHS1) to (e.RHS1))((e.LHS2) to (e.RHS2))
+        = <IfEquivalentConf (/* Fresh bag for assignments */)(('*'e.LHS1)e.RHS1)(('*'e.LHS2)e.RHS2)>;
+}
+
+SubstituteInEqPRTC {
+    (e.Assignment)t.PRTC
+    , t.PRTC : ((e.Equations)(e.Restrictions)(e.Assignments)((e.LHS) to (e.RHS)))
+    , <GetPRTCAllEqs <SubstInAllEqs (e.Assignment) t.PRTC>> : e.FreshEqs
+    , <AnalyseEqPRTC 
+        (
+            (e.FreshEqs)
+            (e.Restrictions e.Assignment)
+            ()
+            ((<Substitute (e.Assignment) e.LHS>) to (<Substitute (e.Assignment) e.RHS>))
+        )
+        > : t.NewPRTC 
+    = t.NewPRTC;
+}
+
+/* Приведение в нормальную форму. */
+AnalyseEqPRTC {
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (t.Equal e.LHS) to (t.Equal e.RHS)
+        = <AnalyseEqPRTC <PutPRTCClash t.PRTC (e.LHS) to (e.RHS)>>;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (e.LHS t.Equal) to (e.RHS t.Equal)
+        = <AnalyseEqPRTC <PutPRTCClash t.PRTC (e.LHS) to (e.RHS)>>;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (/*EMPTY*/) to (/*EMPTY*/)
+        = <AnalyseEqPRTC <PutPRTCClash t.PRTC /*EMPTY*/>>;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (/*EMPTY*/) to (e.Something)
+        = <AnalyseEqPRTC <PutPRTCClash t.PRTC (e.Something) to (/*EMPTY*/)>>;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (s.1 e.x) to (s.2 e.y)
+        = Zero;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (e.x s.1) to (e.y s.2)
+        = Zero;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (e.x1 s.1 e.x2) to (/* EMPTY */)
+        = Zero;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (e.x1 (weval t t.Name) e.x2) to (/* EMPTY */)
+        = Zero;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (t.1) to (t.2 t.3 e.Something)
+        = <AnalyseEqPRTC <PutPRTCClash t.PRTC (t.2 t.3 e.Something) to (t.1)>>;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (e.1 t.1 e.2) to (t.1)
+        = <AnalyseEqPRTC <PutPRTCClash t.PRTC (e.1 e.2) to (/* EMPTY */)>>;
+    t.PRTC
+    , <GetPRTCClash t.PRTC> : (e.SomethingNonEmpty) to ((weval e t.Name))
+        = <SubstituteInEqPRTC ((assign (weval e t.Name)(e.SomethingNonEmpty)))<PutPRTCClash t.PRTC /*EMPTY*/>>;
+    t.PRTC = t.PRTC;
+}
+
 /*********************************************************
    КВАДРАТИЧНЫЕ УРАВНЕНИЯ
 *********************************************************/
-
 
 /* Прогонка для квадратичных уравнений. */
 ClashQuadEquation {

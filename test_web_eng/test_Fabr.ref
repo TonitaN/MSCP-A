@@ -1,0 +1,36 @@
+/*
+  The function Fabr changes letters 'A' to 'B' in a string and appends 'B' to the result.
+  If the usual order of generalization is applied, the generalization produces a parameter, which is always empty.
+  Using word equations during generalization as rewrite rules, we avoid the redundant parameters.
+*/
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+$ENTRY Go {
+  e.X = <Fabr (e.X 'A') ()>;
+}
+
+Fabr {
+  (e.Left 'A') (e.Right) = <Fabr (e.Left) ('B' e.Right)>;
+  (e.Left s.X) (e.Right) = <Fabr (e.Left) (s.X e.Right)>;
+  () (e.Right) = e.Right;
+}
+
+/***********************************************/
+/*          the residual program               */
+/***********************************************/
+
+/*
+$ENTRY Go {
+ e.x1 =  <Fabr_123_0 (e.x1) ()>;
+}
+
+
+Fabr_123_0 {
+ (e.x1 'A') (e.x2) =  <Fabr_123_0 (e.x1) ('B' e.x2)>;
+ (e.x1 s.z1) (e.x2) =  <Fabr_123_0 (e.x1) (s.z1 e.x2)>;
+ () (e.x1) =  e.x1 'B';
+}
+
+*/

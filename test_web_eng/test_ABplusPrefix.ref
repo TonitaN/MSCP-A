@@ -1,15 +1,12 @@
 /*
- Слегка измененный пример test_strangeprefix.ref.
- Теперь после конкатенации, реализуемой с конца, к началу слова приписывается слово 'АB'.
- Префиксом такого слова его последующий отрезок будет, только если он имеет вид ['AB']^n ['A'| EMPTY].
-
- Цикл в Prefix_0 просто проверяет, состоит ли второй аргумент Go из s-символов.
- Prefix_123_1 и Prefix_123_2 проверяют первый аргумент Go на указанное выше условие.
- Функции Prefix_123_2 второй и третий аргументы не нужны!
+ A sligthly changed example test_strangeprefix.ref. 
+ The concatenation e.x++e.y is done starting from the end of the concatenated string e.y.
+ Then we prepend the prefix 'AB' to e.x++e.y.
+ The string e.x may be a prefix of 'AB'++e.x++e.y, iff it belongs to the language ['A'| EMPTY] ++ ['BA']^n.
 */
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 
 *$MST_FROM_ENTRY;
@@ -19,58 +16,81 @@ $ENTRY Go {
 }
 
 Prefix {
- () e.2 = 'T';
- (s.x e.1) s.x e.2 = <Prefix (e.1) e.2>;
- ('A' e.1) 'B' e.2 = 'F';
- ('B' e.1) 'A' e.2 = 'F';
- (t.x e.1) = 'F';
+ () e.x = 'T';
+ (s.x e.y1) s.x e.y2 = <Prefix (e.y1) e.y2>;
+ ('A' e.y1) 'B' e.y2 = 'F';
+ ('B' e.y1) 'A' e.y2 = 'F';
+ (t.x e.y1) = 'F';
 }
 
 Concat {
- (e.1) = 'AB'e.1;
- (e.1) e.2 s.x = <Concat (e.1) e.2> s.x;
+ (e.y1) = 'AB'e.y1;
+ (e.y1) e.y2 s.x = <Concat (e.y1) e.y2> s.x;
 }
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 /*
 
 $ENTRY Go {
- (e.1) e.2 =  <InputFormat_0 (e.1) (e.2)>;
+ (e.x1) e.x2 =  <InputFormat_0 (e.x1) (e.x2)>;
 }
 
 
 InputFormat_0 {
- () (e.1) =  'T';
- ('A' e.1) () =  <Prefix_123_1 e.1>;
- ('B' e.1) () =  'F';
- (s.1 e.1) (e.2 s.2) =  <Prefix_0 (s.1) (e.1) (e.2) (s.2) ()>;
+ () (e.x1) =  'T';
+ ('A' e.x1) () =  <Prefix_123_0 e.x1>;
+ ('B' e.x1) () =  'F';
+ (s.z1 e.x1) (e.x2 s.z1) =  <Prefix_0 s.z1 (e.x1) (e.x2) ()>;
+ ('A' e.x1) (e.x2 s.z1) =  <Prefix_1 (e.x1) (e.x2) () s.z1>;
+ ('B' e.x1) (e.x2 s.z1) =  <Prefix_2 (e.x1) (e.x2) () s.z1>;
+}
+
+
+Prefix_123_0 {
+ =  'T';
+ 'B' =  'T';
+ 'BA' e.x1 =  <Prefix_123_0 e.x1>;
+ 'BB' e.x1 =  'F';
+ 'A' e.x1 =  'F';
 }
 
 
 Prefix_123_1 {
- =  'T';
- 'B' =  'T';
- 'BA' e.1 =  <Prefix_123_1 e.1>;
- 'BB' e.1 =  'F';
- 'A' e.1 =  'F';
-}
-
-
-Prefix_123_2 {
- () (s.1) (e.1) =  'T';
- ('B') (s.1) (e.1) =  'T';
- ('BA' e.1) (s.1) (e.2) =  <Prefix_123_2 (e.1) (s.1) (e.2)>;
- ('BB' e.1) (s.1) (e.2) =  'F';
- ('A' e.1) (s.1) (e.2) =  'F';
+ () (e.x1) =  'T';
+ ('B') (e.x1) =  'T';
+ ('BA' e.x1) (e.x2) =  <Prefix_123_1 (e.x1) (e.x2)>;
+ ('BB' e.x1) (e.x2) =  'F';
+ ('A' e.x1) (e.x2) =  'F';
 }
 
 
 Prefix_0 {
- ('A') (e.1) () (s.1) (e.2) =  <Prefix_123_2 (e.1) (s.1) (e.2)>;
- ('B') (e.1) () (s.1) (e.2) =  'F';
- (s.1) (e.1) (e.2 s.2) (s.3) (e.3) =  <Prefix_0 (s.1) (e.1) (e.2) (s.2) (s.3 e.3)>;
+ 'A' (e.x1) () (e.x2) =  <Prefix_123_1 (e.x1) (e.x2)>;
+ 'B' (e.x1) () (e.x2) =  'F';
+ s.z1 (e.x1) (e.x2 s.z2) (e.x3) =  <Prefix_0 s.z1 (e.x1) (e.x2) (s.z2 e.x3)>;
+}
+
+
+Prefix_1 {
+ (e.x1) () (e.x2) s.z1 =  <Prefix_123_2 (e.x1) (e.x2) s.z1>;
+ (e.x1) (e.x2 s.z1) (e.x3) s.z2 =  <Prefix_1 (e.x1) (e.x2) (s.z1 e.x3) s.z2>;
+}
+
+
+Prefix_123_2 {
+ () (e.x1) s.z1 =  'T';
+ ('B') (e.x1) s.z1 =  'T';
+ ('BA' e.x1) (e.x2) s.z1 =  <Prefix_123_2 (e.x1) (e.x2) s.z1>;
+ ('BB' e.x1) (e.x2) s.z1 =  'F';
+ ('A' e.x1) (e.x2) s.z1 =  'F';
+}
+
+
+Prefix_2 {
+ (e.x1) () (e.x2) s.z1 =  'F';
+ (e.x1) (e.x2 s.z1) (e.x3) s.z2 =  <Prefix_2 (e.x1) (e.x2) (s.z1 e.x3) s.z2>;
 }
 
 */

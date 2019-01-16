@@ -18,22 +18,30 @@
    ([WordEquation]^*)^* => ({[WordEquation]^*|Zero})^*
 */
 
+/* Тестовые */
+$EXTERN RenewAllIndices,SubdirSign,Collapse;
+
 /* из модуля basics.ref */
-$EXTERN TermContradiction, MaxElementPowerMS, IfIncluded,Substitute,LessGenericPattern,IsTerm,MSCPError,Map;
-$EXTERN IfASubMultiSet, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,SubtractEl,InsertInMultiSet,MergeSets,SymSubstMS;
+$EXTERN TermContradiction, MaxElementPowerMS, IfIncluded,Substitute,LessGenericPattern,IsTerm,MSCPError,Map,IterateSubstitute,FindTerm;
+$EXTERN SubSetRel, IfASubMultiSet, CompareMultiSets, SubtractSetFromSet, FindMSIntersection, SubtractMS,SubtractEl,InsertInMultiSet,MergeSets,SymSubstMS;
 $EXTERN LogAnd, LogAndMerge, LogOrMerge, LogOr, RenewIndices, FreshIndex, CurrentIndex,MyInc, MyOne, MyZero, MyMax, MyAdd, MySub, MyIfNotLess, MytoBool, MyMin, MyNewLevel;
+/* из модуля Generalize.ref */
+$EXTERN HomeomorphicEmb,MGUAssoc,IfEquivalentConf;
 /* из модуля Drive.ref */
-$EXTERN SolveEquations,ShuffleMode;
+$EXTERN SolveEquations,ShuffleMode,ExtractNegativeInfo,TrivialPRTC,ClashLeft,Drive;
 /* из модуля DiofEqs.ref */
 $EXTERN SolveLinearDE,NormalizeNumericEquation,GenerateLengthRestriction;
 /* из модуля WordEqsCases.ref */
 $EXTERN DecideQWESolvability;
 /* из модуля accessMSCP.ref */
-$EXTERN SubstituteInNumeric, AddEBVariants, ReplaceEBNumericEqs, ReplaceEBNewEqs, ReplaceEBGrammars, GetEBNewEqs, GetEBNumericEqs,
+$EXTERN SubstituteInClashes, SubstituteInNumeric, AddEBVariants, ReplaceEBNumericEqs, ReplaceEBNewEqs, ReplaceEBGrammars, GetEBNewEqs, GetEBNumericEqs,
 DeleteEBEquation, SubstituteEBAsgs, NormalizeEB, IsContradictory, AddEBNewEqs, MakeEBContr,GenerateNewEB, GetFirstVariants,
-ReplaceEBGenEqs, GetEBGenEqs, AddEBGenEqs, GetEBState, DeleteDoubleEqs, AddEBNumEqs, PutEBState;
+ReplaceEBGenEqs, GetEBGenEqs, AddEBGenEqs, GetEBState, DeleteDoubleEqs, AddEBNumEqs, PutEBState, AddNewLines;
 /* из модуля accessMSCP.ref */
-$EXTERN GenerateFreshPRTC,ReplacePRTCNewEqs,AddPRTCGenericEqs,GetPRTCNewEqs, GetPRTCRestrs;
+$EXTERN GenerateFreshPRTC,ReplacePRTCNewEqs,AddPRTCGenericEqs,AddPRTCNegativeInfo,GetPRTCNewEqs, GetPRTCRestrs,
+    GetPRTCCallRestrs, GetPRTCAllEqs;
+/* из модуля AnalyzeFunDef.ref */
+$EXTERN GetClashesPatternType;
 
 $EXTERN GenerateNewNode, UnfoldMain, RestartIndices, AssignTimeStamps, YieldDecomposition, FormatStack;
 /*
@@ -52,6 +60,26 @@ $EXTERN GenerateNewNode, UnfoldMain, RestartIndices, AssignTimeStamps, YieldDeco
    (([ParAssignments])([VarAssignments])([CallAssignments]))([ParamExpression])[Expression] => 
    (([ParAssignments])([VarAssignments])([CallAssignments]))([ParamExpression])
 */
+
+ $ENTRY Go2 { = <ScreenNegatives Init
+    <NormalizeInequalityBlock ( )
+     (OR ('D')(((par e 410 )(par e 620 )'[Hm')to ((var e Neg12 )'[Ht'(var e Neg13 ))))
+    >>;}
+
+ $ENTRY Go1 {
+        =
+        <Open 'w' 1 'mscplog'<SubdirSign>'trace_scp'>
+        <Open 'w' 2 'mscplog'<SubdirSign>'generalizations'>
+        <Open 'a' 3 'mscptest'<SubdirSign>'terms.txt'>
+        <Collapse <TimeElapsed 0>>
+        <RenewAllIndices>
+        <RenewIndices 'vare_ind'>
+                    <RenewIndices 'vars_ind'>
+                    <RenewIndices 'vart_ind'>
+        <Prout <Go2>>
+        <Close 1><Close 2><Close 3>;
+}
+
 
 $ENTRY ParametrizeExpression {
 	s.Mode (e.ParameterList)(e.Parametrized)
@@ -77,7 +105,8 @@ $ENTRY ParametrizeExpression {
 	s.Mode (e.OldParList)(e.Parametrized)(t.sort s.type t.name) e.NP,
         <IndivIndex s.Mode <FreshIndex <Explode s.Mode><Explode s.type>'_ind'>> : t.index,
         (assign (t.sort s.type t.name)((s.Mode s.type t.index))) : t.newasg,
-        e.OldParList : (e.ParAsgs)(e.VarAsgs)(e.CallAsgs),
+        e.OldParList : (e.ParAsgs)(e.VarAsgs)(e.CallAsgs)
+        ,
         t.sort :
             {   par = <ParametrizeExpression s.Mode
                         ((e.ParAsgs t.newasg)(e.VarAsgs)(e.CallAsgs))
@@ -105,6 +134,211 @@ IndivIndex {
     var t.index = <Implode 'Neg'<Symb t.index>>;
     weval t.index = t.index;
 }
+
+/*******************************************************************************************
+   ФУНКЦИИ УПРАВЛЕНИЯ РАЗРЕШЕНИЕМ НЕРАВЕНСТВ В СЛОВАХ
+   1. Неравенства приводим в нормальную форму.
+   2. Проверяем результат.
+********************************************************************************************/
+
+$ENTRY NormalizeInequalityBlock {
+    (e.Restrictions) e.ClashesToCheck
+    , <CurrentIndex 'DriveType'> : 'N'
+        = /* EMPTY */;
+    (e.Restrictions) e.Inequalities
+        = <ScreenNegatives Init <NormalizeInequalityBlock Started (e.Restrictions) e.Inequalities>>;
+    Started (e.Restrictions)(OR (s.PatternType) e.Clashes) e.Inequalities
+    , <SubstituteInClashes 0 (e.Restrictions) e.Clashes (Delayed)> : e.NewClashes (Delayed)
+    , <GenerateFreshPRTC e.NewClashes> : t.NegativePRTC
+    , <AddPRTCNegativeInfo t.NegativePRTC e.Inequalities> : t.PRTCtoProcess
+    , <Br 'PatternType='s.PatternType> : 
+    , <Br 'DriveType=N'> : 
+    , <Putout 1 'Normalizing negative clash No. '<FreshIndex 'prtc_ind'>><Putout 1 e.Clashes> : 
+    , <Drive s.PatternType ( ) <ClashLeft s.PatternType 0 t.PRTCtoProcess>>
+        : { 
+            /* EMPTY */
+            , <Dg 'PatternType'> : e.P
+            , <Dg 'DriveType'> : e.Q 
+                = <NormalizeInequalityBlock Started (e.Restrictions)e.Inequalities>;
+            e.PRTCs
+            , <TrivialPRTC e.PRTCs> : 'T'
+            , <Dg 'PatternType'> : e.P
+            , <Dg 'DriveType'> : e.Q 
+                = False;
+            e.PRTCsWithCalls
+            , e.PRTCsWithCalls : e.1 t.PushPRTC e.2
+            , <GetPRTCCallRestrs t.PushPRTC> : t.SomeCall e.OtherCalls
+            , <Dg 'PatternType'> : e.P
+            , <Dg 'DriveType'> : e.Q 
+                = <NormalizeInequalityBlock Started (e.Restrictions)e.Inequalities>;
+            e.PRTCsWithRestrictions
+            , <Dg 'PatternType'> : e.P
+            , <Dg 'DriveType'> : e.Q 
+                = <ExtractNormalNegative (<GetIneqPars ( )e.NewClashes>) e.PRTCsWithRestrictions>
+                <NormalizeInequalityBlock Started (e.Restrictions)e.Inequalities>;
+        };
+    Started (e.Restrictions) /* NO MORE NEGATIVE BLOCKS */ = /* EMPTY */;
+}
+
+DeleteExcessiveSubs {
+    (e.1 t.par e.2)(assign t.par e.Data) e.Other
+        = (assign t.par e.Data) <DeleteExcessiveSubs (e.1 t.par e.2)e.Other>;
+    (e.TruePars)t.Excessive e.Other
+        = <DeleteExcessiveSubs (e.TruePars)e.Other>;
+    (e.TruePars) = ;
+}
+
+ExtractNormalNegative {
+    (e.Pars) t.PRTC e.Other
+    , <GetPRTCRestrs t.PRTC> : e.R
+    , <GetPRTCAllEqs t.PRTC> : e.Q
+    , <ExtractNegativeInfo (((e.Q)(<DeleteExcessiveSubs (e.Pars)<IterateSubstitute (e.R)e.R>>)( )))> : e.NewNegative
+        = <Putout 1 'New negative: 'e.NewNegative> e.NewNegative <ExtractNormalNegative (e.Pars) e.Other>;
+    (e.Pars) /* EMPTY */ = /* EMPTY */;
+}
+$ENTRY ImplyNEqsNew {
+    (e.Base)(e.ToImply)
+    , <ScreenNegatives Init e.Base> : e.BestBase
+        = <ImplyNEqsNew Started 'T' ()(e.BestBase)(e.ToImply)>;
+    Started s.Log (e.NEqs)(e.Base)( ) = s.Log e.NEqs;
+    Started s.Log (e.NEqs)(e.Base)((t.Proc t.Old) e.Other)
+    , <ScreenNegatives Init <NormalizeInequalityBlock ()t.Proc>> : e.NewIneqs
+    , <FullScreen (e.NewIneqs) e.Base> : 'T'
+        = <ImplyNEqsNew Started s.Log (e.NEqs t.Old)(e.Base)(e.Other)>;
+    Started s.Log (e.NEqs)(e.Base)(t.1 e.Other)
+        = <ImplyNEqsNew Started 'F' (e.NEqs)(e.Base)(e.Other)>;
+}
+
+FullScreen {
+    (t.1 e.x) e.Z
+    , <ScreenNegatives Base (e.Z) t.1> : 
+        {e.Z 
+            = <FullScreen (e.x)e.Z>;
+        e.Other
+            = 'F';
+        };
+    () e.Z = 'T';
+}
+
+/* Подразумевается, что все отрицательные условия уже в нормальной форме! */
+$ENTRY ScreenNegatives {
+    Init e.1 False e.2 = False; 
+    Init e.1 (OR (s.Log)((t.par) to ((var e e.Data)))) e.2
+        = <Putout 1 'Normalized negatives are false!'>;
+    Init e.1 (OR (s.Log)(((par t.type e.data)) to ((var t.type e.data2)))) e.2
+    , <FindTerm (var t.type e.data2) e.1 e.2> : 'F'
+        = False;
+    Init e.1 (OR (s.Log)(((par e e.data)) to ((var t e.data2)(var e e.data3)))) e.2
+    , <FindTerm (var t e.data2) e.1 e.2> : 'F'
+    , e.1 e.2 : e.01 (OR (s.Log)(((par e e.data)) to ( ))) e.02
+        = False;
+    Init e.1 (OR (s.Log)(((par e e.data)) to ((var e e.data3)(var t e.data2)))) e.2
+    , <FindTerm (var t e.data2) e.1 e.2> : 'F'
+    , e.1 e.2 : e.01 (OR (s.Log)(((par e e.data)) to ( ))) e.02
+        = False;
+    Init e.1 (OR (s.Log)e.01((t.par) to ((var e e.Data)))e.02) e.2
+        = <ScreenNegatives Init e.1 (OR (s.Log) e.01 e.02) e.2 >;
+    Init e.N1 t.Rep e.N2 t.Rep e.N3
+        = <ScreenNegatives Init e.N1 e.N2 t.Rep e.N3>; 
+    Init e.N1 (OR (s.Log) e.1 t.Clash e.2) e.N2
+    , e.N1 e.N2 : e.01 (OR (s.Log2) t.Clash) e.02
+        = <ScreenNegatives Init e.N1 e.N2>;
+    Init = ;
+    Init t.1 = t.1;
+    Init t.1 t.2 e.Z = <Putout 1 'ToScreen inequalities:'><Putout 1 <AddNewLines t.1 t.2 e.Z>> 
+        <ScreenNegatives Base (/* EMPTY */) t.1 t.2 e.Z>;
+    Base (e.Checked)(OR (s.Log) e.Clashes) e.Other
+    , <EmbeddingPatterns (e.Clashes) e.Checked e.Other>
+    : { True
+            = <ScreenNegatives Base (e.Checked) e.Other>;
+        False
+            = <ScreenNegatives Base (e.Checked (OR (s.Log) e.Clashes)) e.Other>;
+   }; 
+   Base (e.Checked) = <Putout 1 'Screened inequalities:'><Putout 1 <AddNewLines e.Checked>> e.Checked;
+}
+
+GetIneqPars {
+    (e.set)((e.c1 ('*' e.cb) e.c2) to (e.Pattern)) e.Other
+        = <GetIneqPars (e.set)((e.c1 e.cb e.c2) to (e.Pattern))e.Other>;
+    (e.set)((e.c1 (par e.data) e.c2) to (e.Pattern)) e.Other
+    , e.set
+    : {
+        e.1 (par e.data) e.2
+            = <GetIneqPars (e.set)((e.c2) to (e.Pattern))e.Other>;
+        e.Z
+            = <GetIneqPars (e.set (par e.data))((e.c2) to (e.Pattern)) e.Other>;
+    };
+    (e.set)t.NoPars e.Other = <GetIneqPars (e.set) e.Other>;
+    (e.set) = e.set;
+}
+
+EmbeddingPatterns {
+    (e.Clashes) (OR (s.Log) e.ClashesToCheck) e.Other
+    , <SubSetRel (<GetIneqPars ()e.Clashes>)(<GetIneqPars ()e.ClashesToCheck>)>
+    : {
+        'T'
+        , <AllAreInstances (e.ClashesToCheck)(e.Clashes)>
+        : {
+            'T'
+                = True;
+            'F'
+                = <EmbeddingPatterns (e.Clashes) e.Other>;
+        };
+        'F' = <EmbeddingPatterns (e.Clashes) e.Other>;
+    };
+    (e.Clashes) /*NO MORE */ = False;
+}
+
+AllAreInstances {
+    (((t.par) to (e.Pattern)) e.OtherToCheck) (e.1 ((t.par) to (e.Pattern2)) e.2)
+/*    , <HomeomorphicEmb (e.Pattern)e.Pattern2> : 'T'
+    , <MGUAssoc ((var e Init))((assign (var e Init)(ToUnify (e.Pattern)(e.Pattern2))))()> : (e.Gener)(e.MGUs)
+    , <IfEquivalentConf ()(e.Gener)(e.Pattern)> : (e.Subs)*/
+    , <IfInstance ()(e.Pattern2)e.Pattern> : (e.Subs)
+        = <AllAreInstances (e.OtherToCheck)(e.1 ((t.par) to (e.Pattern2)) e.2)>;
+    (t.Clash e.OtherToCheck)(e.NoImbedding) = 'F';
+    (/* EMPTY */)(e.All) = 'T';
+}
+
+IfInstance {
+    (e.Subs)( ) = (e.Subs);
+    (e.Subs)(t.x e.1)t.x e.2 = <IfInstance (e.Subs)(e.1)e.2>;
+    (e.Subs)(('*'e.1)e.2)('*'e.3)e.4
+    , <IfInstance (e.Subs)(e.2)e.4> : (e.Subs2)
+        = <IfInstance (e.Subs2)(e.1)e.2>;
+    (e.Subs)(s.x e.1)(t.sort t t.name) e.2
+        = <IfInstance (e.Subs (assign (t.sort t t.name)(s.x)))(e.1)e.2>;
+    (e.Subs)((t.sort t t.name) e.1)(t.sort t t.name2) e.2
+        = <IfInstance (e.Subs (assign (t.sort t t.name2)((t.sort t t.name))))(e.1)e.2>;
+    (e.Subs)((t.sort s t.name) e.1)(t.sort s t.name2) e.2
+        = <IfInstance (e.Subs (assign (t.sort s t.name2)((t.sort s t.name))))(e.1)e.2>;
+    (e.Subs)(s.x e.1)(t.sort s t.name) e.2
+        = <IfInstance (e.Subs (assign (t.sort s t.name)(s.x)))(e.1)e.2>;
+    (e.Subs)((t.sort e t.name) e.1)(t.sort e t.name2) e.2
+        = <LogOrX <IfInstance (e.Subs)(e.1)e.2><IfInstance (e.Subs)(e.1)(t.sort e t.name2)e.2>>;
+    (e.Subs)(t.1 e.1)(t.sort e t.name) e.2
+        = <LogOrX <IfInstance (e.Subs)(e.1)e.2> 
+            <LogOrX <IfInstance (e.Subs)(t.1 e.1)e.2><IfInstance (e.Subs)(e.1)(t.sort e t.name)e.2>>>;
+    (e.Subs)( )(t.sort e t.name) = (e.Subs);
+    (e.Subs)(e.1)e.2 = 'F';
+}
+
+LogOrX {
+    e.1 (e.2) e.3 = (e.2);
+    e.Z = 'F';
+}
+
+CorrectSubs {
+    e.1 t.1 e.2 t.1 e.3 = <CorrectSubs e.1 t.1 e.2 e.3>;
+    e.1 (assign t.par (e.Val1)) e.2 (assign t.par (e.Val2)) e.3 = 'F';
+    e.Z = 'T';
+}
+
+/*******************************************************************************************
+   ФУНКЦИИ УПРАВЛЕНИЯ РАЗРЕШЕНИЕМ УРАВНЕНИЙ В СЛОВАХ
+   1. Приводим уравнения в словах к общему виду, считаем максимальную кратность переменных в каждом уравнении
+   2. 
+********************************************************************************************/
 
 /*
     Функции, подготовительные для суперкомпиляции как алгоритма преобразования уравнений.
@@ -266,7 +500,7 @@ $ENTRY IterateWEforPRTCs {
         };
         t.EquationBlock e.Other, <GetEBState t.EquationBlock> : 'T'
             = <IterateWEforPRTCs <DeleteDoubleEqs t.EquationBlock>>;
-/* 2. Пока имеются новые уравнения, не расщепленные - осуществляем расщепление. */
+/* 2. Пока имеются уравнения, не расщепленные - осуществляем расщепление. */
 	t.EquationBlock e.Other,
         <GetMarkedEquation ('T') t.EquationBlock> : t.Equation,
         <GetEBNumericEqs t.EquationBlock> : e.Numeric,
@@ -283,7 +517,7 @@ $ENTRY IterateWEforPRTCs {
                 e.Other
             >;
 /*
-   3. Нерасщепленных новых уравнений не осталось, но есть не оцененные числовыми равенствами -
+   3. Нерасщепленных уравнений не осталось, но есть не оцененные числовыми равенствами -
    оцениваем их. 
 */
 
@@ -333,7 +567,7 @@ $ENTRY IterateWEforPRTCs {
                 >
                 e.Other 
             >;
-/* 6. Остались не проверенные на разрешимость новые уравнения - проверяем их. */
+/* 6. Остались не проверенные на разрешимость уравнения - проверяем их. */
 	t.EquationBlock e.Other,
         <CurrentIndex 'SolveEqMode'> : '0',
         <GetMarkedEquation ('D') t.EquationBlock> : t.Equation,
@@ -636,20 +870,22 @@ PostProcessSingleSplit {
 }
 
 PlaceInCommEqs {
-    t.Equation (New e.NewEqs)(Generic e.GenEqs),
-    <CurrentIndex 'SolveEqMode'> :
-    { '1' = (New e.NewEqs t.Equation)(Generic e.GenEqs);
-     '0',
-     <CurrentIndex 'EquationType'> :
-        { '0' = (New e.NewEqs)(Generic e.GenEqs t.Equation);
-          '1' = (New e.NewEqs t.Equation)(Generic e.GenEqs);
+    t.Equation (New e.NewEqs)(Generic e.GenEqs)
+    , <CurrentIndex 'SolveEqMode'> :
+        { '1' = (New e.NewEqs t.Equation)(Generic e.GenEqs);
+         '0'
+         , <CurrentIndex 'EquationType'> :
+            { '0' = (New e.NewEqs)(Generic e.GenEqs t.Equation);
+              '1' = (New e.NewEqs t.Equation)(Generic e.GenEqs);
+            };
         };
-    };
 }
 
 PostProcessSplits {
     (Common e.1)(Variants e.2) = (Common e.1)(Variants e.2);
+    
     e.1 (Common ()((New)(Generic))('T'))(Variants ) e.2 = e.1 e.2;
+    
     (Common (e.Asg1)((New e.NewEqs1)(Generic e.GenEqs1))(s.Log1))(Variants e.Cases1)
     (Common (e.Asg2)((New e.NewEqs2)(Generic e.GenEqs2))(s.Log2))(Variants e.Cases2) e.Left 
         =
@@ -703,10 +939,10 @@ $ENTRY SplitEquation {
             (Common ()(<PlaceInCommEqs (AreEqual ('T')(e.01)(e.02))(New)(Generic)>)('T'))(Variants ) 
             <SplitEquation (e.Numeric)(AreEqual (e.1)(e.2))>
         >;
-    (e.Numeric)(AreEqual ((weval e t.Name1) e.LHS)((weval e t.Name2) e.RHS)),
-    <InvolvedInNumeric 1(weval e t.Name1)(weval e t.Name2)(e.Numeric)> : t.NewAssignment,
-    <Substitute (t.NewAssignment)(weval e t.Name1) e.LHS> : e.NewLHS,
-    <Substitute (t.NewAssignment)(weval e t.Name2) e.RHS> : e.NewRHS
+    (e.Numeric)(AreEqual ((weval e t.Name1) e.LHS)((weval e t.Name2) e.RHS))
+    , <InvolvedInNumeric 1(weval e t.Name1)(weval e t.Name2)(e.Numeric)> : t.NewAssignment
+    , <Substitute (t.NewAssignment)(weval e t.Name1) e.LHS> : e.NewLHS
+    , <Substitute (t.NewAssignment)(weval e t.Name2) e.RHS> : e.NewRHS
         =
         (Common 
             (t.NewAssignment)
@@ -725,10 +961,10 @@ $ENTRY SplitEquation {
             ('T')
         )
         (Variants );
-/* 5. С двух сторон переменные равных типов (но не е-типа) - они равны между собой. */
-    (e.Numeric)(AreEqual ((weval t.type e.name1) e.1)((weval t.type e.name2) e.2)),
-    <MSType (weval t.type e.name1)> : Const,
-    (assign (weval t.type e.name1)((<MyOne> Const))((weval t.type e.name2))) : t.NewAssignment
+/* 6. С двух сторон переменные равных типов (но не е-типа) - они равны между собой. */
+    (e.Numeric)(AreEqual ((weval t.type e.name1) e.1)((weval t.type e.name2) e.2))
+    , <MSType (weval t.type e.name1)> : Const
+    , (assign (weval t.type e.name1)((<MyOne> Const))((weval t.type e.name2))) : t.NewAssignment
         = 
         <PostProcessSplits 
             (Common (t.NewAssignment)((New)(Generic))('T'))(Variants )
@@ -737,9 +973,9 @@ $ENTRY SplitEquation {
                 (AreEqual (<Substitute (t.NewAssignment)e.1>)(<Substitute (t.NewAssignment)e.2>))
             >
         >;
-    (e.Numeric)(AreEqual (e.1 (weval t.type e.name1))(e.2 (weval t.type e.name2))),
-    <MSType (weval t.type e.name1)> : Const,
-    (assign (weval t.type e.name1)((<MyOne> Const))((weval t.type e.name2))) : t.NewAssignment
+    (e.Numeric)(AreEqual (e.1 (weval t.type e.name1))(e.2 (weval t.type e.name2)))
+    , <MSType (weval t.type e.name1)> : Const
+    , (assign (weval t.type e.name1)((<MyOne> Const))((weval t.type e.name2))) : t.NewAssignment
         = 
         <PostProcessSplits 
             (Common (t.NewAssignment)((New)(Generic))('T'))(Variants )
@@ -748,52 +984,52 @@ $ENTRY SplitEquation {
                 (AreEqual (<Substitute (t.NewAssignment)e.1>)(<Substitute (t.NewAssignment)e.2>))
             >
         >;
-/* 6. С одной стороны элемент уравнения более общего типа, чем с другой - формируем его уточнение. */
-    (e.Numeric)(AreEqual (t.1 e.1)(t.2 e.2)),
-    <LessGenericPattern t.1 t.2> : 'T',
-    <MSType t.1> : Const,
-    <TermContradiction t.2 t.1> : 'F',
-    (assign t.1 ((<MyOne> Const))(t.2)) : t.NewAssignment 
+/* 7. С одной стороны элемент уравнения более общего типа, чем с другой - формируем его уточнение. */
+    (e.Numeric)(AreEqual (t.1 e.1)(t.2 e.2))
+    , <LessGenericPattern t.1 t.2> : 'T'
+    , <MSType t.1> : Const
+    , <TermContradiction t.2 t.1> : 'F'
+    , (assign t.1 ((<MyOne> Const))(t.2)) : t.NewAssignment 
         = 
         <PostProcessSplits 
             (Common (t.NewAssignment)((New)(Generic))('T'))(Variants )
             <SplitEquation (e.Numeric)
                 (AreEqual (<Substitute (t.NewAssignment)e.1>)(<Substitute (t.NewAssignment)e.2>))
             >>;
-    (e.Numeric)(AreEqual (t.1 e.1)(t.2 e.2)),
-    <LessGenericPattern t.2 t.1> : 'T',
-    <MSType t.2> : Const,
-    <TermContradiction t.1 t.2> : 'F',
-    (assign t.2 ((<MyOne> Const))(t.1)) : t.NewAssignment 
+    (e.Numeric)(AreEqual (t.1 e.1)(t.2 e.2))
+    , <LessGenericPattern t.2 t.1> : 'T'
+    , <MSType t.2> : Const
+    , <TermContradiction t.1 t.2> : 'F'
+    , (assign t.2 ((<MyOne> Const))(t.1)) : t.NewAssignment 
         = 
         <PostProcessSplits (Common (t.NewAssignment)((New)(Generic))('T'))(Variants )
             <SplitEquation 
                 (e.Numeric)
                 (AreEqual (<Substitute (t.NewAssignment)e.1>)(<Substitute (t.NewAssignment)e.2>))>
         >;
-    (e.Numeric)(AreEqual (e.1 t.1)(e.2 t.2)),
-    <LessGenericPattern t.1 t.2> : 'T',
-    <MSType t.1> : Const,
-    <TermContradiction t.2 t.1> : 'F',
-    (assign t.1 ((<MyOne> Const))(t.2)) : t.NewAssignment 
+    (e.Numeric)(AreEqual (e.1 t.1)(e.2 t.2))
+    , <LessGenericPattern t.1 t.2> : 'T'
+    , <MSType t.1> : Const
+    , <TermContradiction t.2 t.1> : 'F'
+    , (assign t.1 ((<MyOne> Const))(t.2)) : t.NewAssignment 
         = 
         <PostProcessSplits (Common (t.NewAssignment)((New)(Generic))('T'))(Variants )
             <SplitEquation 
                 (e.Numeric)
                 (AreEqual (<Substitute (t.NewAssignment)e.1>)(<Substitute (t.NewAssignment)e.2>))>
         >;
-    (e.Numeric)(AreEqual (e.1 t.1)(e.2 t.2)),
-    <LessGenericPattern t.2 t.1> : 'T',
-    <MSType t.2> : Const,
-    <TermContradiction t.1 t.2> : 'F',
-    (assign t.2 ((<MyOne> Const))(t.1)) : t.NewAssignment
+    (e.Numeric)(AreEqual (e.1 t.1)(e.2 t.2))
+    , <LessGenericPattern t.2 t.1> : 'T'
+    , <MSType t.2> : Const
+    , <TermContradiction t.1 t.2> : 'F'
+    , (assign t.2 ((<MyOne> Const))(t.1)) : t.NewAssignment
         = 
         <PostProcessSplits (Common (t.NewAssignment)((New)(Generic))('T'))(Variants )
             <SplitEquation (e.Numeric)
                 (AreEqual (<Substitute (t.NewAssignment)e.1>)(<Substitute (t.NewAssignment)e.2>))>
         >;
 				
-/* 7. Находим е-переменную (с одной или двух сторон), переходим к подсчету элементов уравнения. */
+/* 5. Находим е-переменную (с одной или двух сторон), переходим к подсчету элементов уравнения. */
     (e.Numeric)(AreEqual ((weval e e.index1) e.1)((weval e e.index2) e.2))
         = 
         <SplitEquationLeft (e.Numeric)
@@ -834,8 +1070,8 @@ $ENTRY SplitEquation {
             )
         >;
 /* 8. Ни с одной стороны не переменная, не элемент более общего типа и не равные термы - противоречие. */
-	(e.Numeric)(AreEqual (t.1 e.1)(e.2)) = (Common ()((New)(Generic))('F'))(Variants );
-	(e.Numeric)(AreEqual (e.1)(t.2 e.2)) = (Common ()((New)(Generic))('F'))(Variants );
+    (e.Numeric)(AreEqual (t.1 e.1)(e.2)) = (Common ()((New)(Generic))('F'))(Variants );
+    (e.Numeric)(AreEqual (e.1)(t.2 e.2)) = (Common ()((New)(Generic))('F'))(Variants );
 }/* SplitEquation */
 
 /*
@@ -844,14 +1080,14 @@ $ENTRY SplitEquation {
    порождаем назначение, связывающее две эти переменные.
 */
 InvolvedInNumeric {
-    s.Mode t.Term1 t.Term2 (e.Num1 (AreEqual ((1 t.Term1))(e.MS1 (t.Pow t.Term2) e.MS2)) e.Num2),
-    <FreshIndex 'wevale_ind'> : t.NewName
-            = (assign t.Term1 ((<MyOne> t.Term2)(<MyOne> (weval e t.NewName)))
+    s.Mode t.Term1 t.Term2 (e.Num1 (AreEqual ((1 t.Term1))(e.MS1 (t.Pow t.Term2) e.MS2)) e.Num2)
+    , <FreshIndex 'wevale_ind'> : t.NewName
+        = (assign t.Term1 ((<MyOne> t.Term2)(<MyOne> (weval e t.NewName)))
                 (<InverseShuffle s.Mode t.Term2 (weval e t.NewName)>));
-    s.Mode t.Term1 t.Term2 (e.Num1 (AreEqual ((1 t.Term2))(e.MS1 (t.Pow t.Term1) e.MS2)) e.Num2),
-    <FreshIndex 'wevale_ind'> : t.NewName
-            = (assign t.Term2 ((<MyOne> t.Term1)(<MyOne> (weval e t.NewName)))
-                (<InverseShuffle s.Mode t.Term1 (weval e t.NewName)>));
+    s.Mode t.Term1 t.Term2 (e.Num1 (AreEqual ((1 t.Term2))(e.MS1 (t.Pow t.Term1) e.MS2)) e.Num2)
+    , <FreshIndex 'wevale_ind'> : t.NewName
+        = (assign t.Term2 ((<MyOne> t.Term1)(<MyOne> (weval e t.NewName)))
+            (<InverseShuffle s.Mode t.Term1 (weval e t.NewName)>));
     s.Mode t.Term1 t.Term2 (e.OtherNumeric) = ;
 }
 
@@ -885,11 +1121,11 @@ NonEmpty {
 SplitEquationLeft {
 /* 1. Оба выражения исчерпаны при разборе справа (т.е. окончательном). */
 /* а) С одной стороны - лишь одна переменная, причем ее нет с другой стороны => возвращаем назначение. */
-    (e.Numeric) 1 (AreEqual (e.ParMS1)((weval e e.var))()(e.ParMS2)(e.Proc2)()), 
-    <TermContradiction (weval e e.var) e.Proc2> : 'F'
+    (e.Numeric) 1 (AreEqual (e.ParMS1)((weval e e.var))()(e.ParMS2)(e.Proc2)())
+    , <TermContradiction (weval e e.var) e.Proc2> : 'F'
         = (Common ((assign (weval e e.var)(e.ParMS2)(e.Proc2)))((New)(Generic))('T'))(Variants );
-    (e.Numeric) 1 (AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)((weval e e.var))()),
-    <TermContradiction (weval e e.var) e.Proc1> : 'F'
+    (e.Numeric) 1 (AreEqual (e.ParMS1)(e.Proc1)()(e.ParMS2)((weval e e.var))())
+    , <TermContradiction (weval e e.var) e.Proc1> : 'F'
         = (Common ((assign (weval e e.var)(e.ParMS1)(e.Proc1)))((New)(Generic))('T'))(Variants );
 /*
    1б) Общий случай (включая случай, когда с одной стороны одна переменная, а с другой - выражение, включающее
@@ -902,9 +1138,9 @@ SplitEquationLeft {
    2. Мультимножества уже обработанных параметров слева и справа одинаковы - 
    оба уравнения обрабатываются отдельно друг от друга. 
 */
-    (e.Numeric) s.Mode (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2)),
-    <CompareMultiSets (e.ParMS1)(e.ParMS2)> : 'T',
-    <NonEmpty (e.ParMS1)> : 'T' 
+    (e.Numeric) s.Mode (AreEqual (e.ParMS1)(e.Proc1)(e.1)(e.ParMS2)(e.Proc2)(e.2))
+    , <CompareMultiSets (e.ParMS1)(e.ParMS2)> : 'T'
+    , <NonEmpty (e.ParMS1)> : 'T' 
         =    
         <PostProcessSplits (Common ()(<PlaceInCommEqs (AreEqual ('N')(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))(New)(Generic)>)('T'))(Variants )
 				<SplitEquation (e.Numeric) (AreEqual (e.1)(e.2))>
@@ -937,11 +1173,11 @@ SplitEquationLeft {
             )
         >;
 /* 4. С двух сторон имеется по терму - помещаем их в мультимножества элементов уравнения. */
-    (e.Numeric) s.Mode (AreEqual (e.OldParMS1)(e.Proc1)(e.1)(e.OldParMS2)(e.Proc2)(e.2)),
-    <ExtractTerm s.Mode e.1> : t.1,
-    <ExtractTerm s.Mode e.2> : t.2,
-    <InsertInMultiSet s.Mode (e.OldParMS1)(<MyOne> <MSType t.1>)> : e.ParMS1,
-    <InsertInMultiSet s.Mode (e.OldParMS2)(<MyOne> <MSType t.2>)> : e.ParMS2
+    (e.Numeric) s.Mode (AreEqual (e.OldParMS1)(e.Proc1)(e.1)(e.OldParMS2)(e.Proc2)(e.2))
+    , <ExtractTerm s.Mode e.1> : t.1
+    , <ExtractTerm s.Mode e.2> : t.2
+    , <InsertInMultiSet s.Mode (e.OldParMS1)(<MyOne> <MSType t.1>)> : e.ParMS1
+    , <InsertInMultiSet s.Mode (e.OldParMS2)(<MyOne> <MSType t.2>)> : e.ParMS2
         = 
         <SplitEquationLeft (e.Numeric) s.Mode 
             (AreEqual 
@@ -961,113 +1197,113 @@ SplitEquationLeft {
 
 $ENTRY NumericEsteem {
     (AreEqual e.Log(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
-                = <NumericEstimation Standart
-				(<SubtractMS (e.ParMS1)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
-				(<SubtractMS (e.ParMS2)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
-				(AreEqual e.Log(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
-                >;
+        = <NumericEstimation Standart
+                (<SubtractMS (e.ParMS1)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+                (<SubtractMS (e.ParMS2)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+                (AreEqual e.Log(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
+        >;
     (AreEqual e.Log(e.ParMS1)(e.ParMS2)) 
-                = <NumericEstimation Length 
-				(<SubtractMS (e.ParMS1)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
-				(<SubtractMS (e.ParMS2)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
-                                (AreEqual e.Log(e.ParMS1)(e.ParMS2))
-                >;
+        = <NumericEstimation Length 
+                (<SubtractMS (e.ParMS1)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+                (<SubtractMS (e.ParMS2)(<FindMSIntersection (e.ParMS1)(e.ParMS2)>)>)
+                (AreEqual e.Log(e.ParMS1)(e.ParMS2))
+        >;
 }
 
 NumericEstimation {
 /* 1. Константы сопоставляются пустому выражению => противоречие. */
-	s.Mode ((s.Pow Const)e.LSE)() t.Equation
-            = (Numeric )(Common ()((New)(Generic))('F'))(Variants );
-	s.Mode ()((s.Pow Const)e.RSE) t.Equation
-            = (Numeric )(Common ()((New)(Generic))('F'))(Variants );
+    s.Mode ((s.Pow Const)e.LSE)() t.Equation
+        = (Numeric )(Common ()((New)(Generic))('F'))(Variants );
+    s.Mode ()((s.Pow Const)e.RSE) t.Equation
+        = (Numeric )(Common ()((New)(Generic))('F'))(Variants );
 /* 2. Переменные сопоставляются пустому выражению => все они пусты. */
-	s.Mode ()()t.Equation,
-        s.Mode :
-        {Standart,
-        t.Equation : (AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
+    s.Mode ()()t.Equation
+    , s.Mode :
+        {Standart
+        , t.Equation : (AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
             = (Numeric )
-                (Common 
-                    ()
-                    (<PlaceInCommEqs (AreEqual ('D')t.MS1 t.LHS t.MS2 t.RHS)(New)(Generic)>)
-                    ('T'))
-                (Variants );
+            (Common 
+                ()
+                (<PlaceInCommEqs (AreEqual ('D')t.MS1 t.LHS t.MS2 t.RHS)(New)(Generic)>)
+                ('T'))
+            (Variants );
         Length
-            =   (Numeric )
-                (Common 
-                    ()((New)(Generic))
-                    ('T'))
-                (Variants );
+            = (Numeric )
+            (Common 
+                ()((New)(Generic))
+                ('T'))
+            (Variants );
         };
-        s.Mode (e.LSE)()t.Equation,
-        s.Mode : 
-            {Standart,
-            t.Equation : (AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
-                = <AssignNil ()(e.LSE)(AreEqual t.MS1 t.LHS t.MS2 t.RHS)>;
-            Length
-                = <AssignNil ()(e.LSE)(AreEqual ((0 Const))()((0 Const))())>;
-            };
-        s.Mode ()(e.RSE)t.Equation,
-        s.Mode : 
-            {Standart,
-            t.Equation : (AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
-                = <AssignNil ()(e.RSE)(AreEqual t.MS1 t.LHS t.MS2 t.RHS)>;
-            Length
-                = <AssignNil ()(e.RSE)(AreEqual ((0 Const))()((0 Const))())>;
-            };
+    s.Mode (e.LSE)()t.Equation
+    , s.Mode : 
+        {Standart
+        , t.Equation : (AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
+            = <AssignNil ()(e.LSE)(AreEqual t.MS1 t.LHS t.MS2 t.RHS)>;
+        Length
+            = <AssignNil ()(e.LSE)(AreEqual ((0 Const))()((0 Const))())>;
+        };
+    s.Mode ()(e.RSE)t.Equation
+    , s.Mode : 
+        {Standart
+        , t.Equation : (AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
+            = <AssignNil ()(e.RSE)(AreEqual t.MS1 t.LHS t.MS2 t.RHS)>;
+        Length
+            = <AssignNil ()(e.RSE)(AreEqual ((0 Const))()((0 Const))())>;
+        };
 /* 3. Имеется линейное диофантово уравнение на длины переменных => разрешаем его и возвращаем список назначений */
-	s.Mode (e.LSE)((s.Pow Const)) t.Equation,
-        s.Mode :
-            {Standart
-                = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.LSE)((s.Pow Const)))>
-                        (t.Equation)>;
-            Length
-                = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.LSE)((s.Pow Const)))>
-                        ((AreEqual ((0 Const))()((0 Const))()))>;
-            };
-        s.Mode ((s.Pow Const))(e.RSE) t.Equation,
-        s.Mode :
-            {Standart
-                = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.RSE)((s.Pow Const)))>
-                        (t.Equation)>;
-            Length
-                = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.RSE)((s.Pow Const)))>
-                        ((AreEqual ((0 Const))()((0 Const))()))>;
-            };
+    s.Mode (e.LSE)((s.Pow Const)) t.Equation
+    , s.Mode :
+        {Standart
+            = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.LSE)((s.Pow Const)))>
+                (t.Equation)>;
+        Length
+            = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.LSE)((s.Pow Const)))>
+                ((AreEqual ((0 Const))()((0 Const))()))>;
+        };
+    s.Mode ((s.Pow Const))(e.RSE) t.Equation
+    , s.Mode :
+        {Standart
+            = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.RSE)((s.Pow Const)))>
+                (t.Equation)>;
+        Length
+            = <FormatAfterDE <SolveLinearDE ('T')(AreEqual (e.RSE)((s.Pow Const)))>
+                ((AreEqual ((0 Const))()((0 Const))()))>;
+        };
 /* 4. Общий делитель симметрической разности неконстантных элементов уравнения не делится на общий делитель разности констант - противоречие. */
-        s.Mode (e.LSE)(e.RSE)
-            (AreEqual e.Log
-                (e.ParMS11 (s.Pow1 Const) e.ParMS12)e.LHS
-                (e.ParMS21 (s.Pow2 Const) e.ParMS22)e.RHS),
-            <SolveLinearDE 
-                ('F')
-                    (AreEqual 
-                        (<SymSubstMS (e.ParMS11 e.ParMS12)(e.ParMS21 e.ParMS22)>)
-                        (<SymSubstMS ((s.Pow1 Const))((s.Pow2 Const))>))
-            > : ()('F')
-            = (Numeric )(Common ()((New)(Generic))('F'))(Variants );
+    s.Mode (e.LSE)(e.RSE)
+        (AreEqual e.Log
+            (e.ParMS11 (s.Pow1 Const) e.ParMS12)e.LHS
+            (e.ParMS21 (s.Pow2 Const) e.ParMS22)e.RHS)
+    , <SolveLinearDE 
+        ('F')
+        (AreEqual 
+            (<SymSubstMS (e.ParMS11 e.ParMS12)(e.ParMS21 e.ParMS22)>)
+            (<SymSubstMS ((s.Pow1 Const))((s.Pow2 Const))>))
+    > : ()('F')
+        = (Numeric )(Common ()((New)(Generic))('F'))(Variants );
 
 /*
     5. Слева или справа в мультимножествах разностей - только один элемент (его не может быть с другой стороны). 
    Извлекаем из данного соотношения уравнение на длину этого элемента. 
 */
 
-        s.Mode ((t.Power (weval e t.Name)))(e.RSE)(AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
-                = (Numeric <NormalizeNumericEquation (AreEqual (e.RSE)((t.Power (weval e t.Name))))>)
-                  (Common ()(<PlaceInCommEqs (AreEqual ('D')t.MS1 t.LHS t.MS2 t.RHS)(New)(Generic)>)('T'))
-                  (Variants );
-        s.Mode (e.LSE)((t.Power (weval e t.Name)))(AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
-                = (Numeric <NormalizeNumericEquation (AreEqual (e.LSE)((t.Power (weval e t.Name))))>)
-                  (Common ()(<PlaceInCommEqs (AreEqual ('D')t.MS1 t.LHS t.MS2 t.RHS)(New)(Generic)>)('T'))
-                  (Variants );
+    s.Mode ((t.Power (weval e t.Name)))(e.RSE)(AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
+        = (Numeric <NormalizeNumericEquation (AreEqual (e.RSE)((t.Power (weval e t.Name))))>)
+            (Common ()(<PlaceInCommEqs (AreEqual ('D')t.MS1 t.LHS t.MS2 t.RHS)(New)(Generic)>)('T'))
+            (Variants );
+    s.Mode (e.LSE)((t.Power (weval e t.Name)))(AreEqual e.Log t.MS1 t.LHS t.MS2 t.RHS)
+        = (Numeric <NormalizeNumericEquation (AreEqual (e.LSE)((t.Power (weval e t.Name))))>)
+            (Common ()(<PlaceInCommEqs (AreEqual ('D')t.MS1 t.LHS t.MS2 t.RHS)(New)(Generic)>)('T'))
+            (Variants );
 /* 6. Во всех прочих случаях возвращаем уравнение как есть. */
-	s.Mode (e.LSE)(e.RSE) t.Equation,
-        s.Mode :
-            {Standart,
-            t.Equation : (AreEqual e.Log(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
-                = (Numeric )(Common ()(<PlaceInCommEqs (AreEqual ('D')(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))(New)(Generic)>)('T'))(Variants );
-            Length
-                = (Numeric t.Equation)(Common ()((New)(Generic))('T'))(Variants );
-            };
+    s.Mode (e.LSE)(e.RSE) t.Equation
+    , s.Mode :
+        {Standart
+        , t.Equation : (AreEqual e.Log(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
+            = (Numeric )(Common ()(<PlaceInCommEqs (AreEqual ('D')(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))(New)(Generic)>)('T'))(Variants );
+        Length
+            = (Numeric t.Equation)(Common ()((New)(Generic))('T'))(Variants );
+        };
 }
 
 /*
@@ -1076,17 +1312,17 @@ NumericEstimation {
 */
 
 AssignNil {
-	(e.Assignments)()(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
-                = (Numeric )(Common (e.Assignments)(<PlaceInCommEqs (AreEqual ('T')(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))(New)(Generic)>)('T'))(Variants );
-	(e.Assignments)((t.Power (weval e e.index)) e.other)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
-                = <AssignNil (e.Assignments (assign (weval e e.index) ((<MyZero> Const))()))(e.other)
-                        (AreEqual 
-                                (<SubtractEl (Inf (weval e e.index))(e.ParMS1)>)
-                                (<Substitute ((assign (weval e e.index)((<MyZero> Const))())) e.Proc1>)
-                                (<SubtractEl (Inf (weval e e.index))(e.ParMS2)>)
-                                (<Substitute ((assign (weval e e.index)((<MyZero> Const))())) e.Proc2>)
-                        )
-                >;
+    (e.Assignments)()(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
+        = (Numeric )(Common (e.Assignments)(<PlaceInCommEqs (AreEqual ('T')(e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))(New)(Generic)>)('T'))(Variants );
+    (e.Assignments)((t.Power (weval e e.index)) e.other)(AreEqual (e.ParMS1)(e.Proc1)(e.ParMS2)(e.Proc2))
+        = <AssignNil (e.Assignments (assign (weval e e.index) ((<MyZero> Const))()))(e.other)
+            (AreEqual 
+                (<SubtractEl (Inf (weval e e.index))(e.ParMS1)>)
+                (<Substitute ((assign (weval e e.index)((<MyZero> Const))())) e.Proc1>)
+                (<SubtractEl (Inf (weval e e.index))(e.ParMS2)>)
+                (<Substitute ((assign (weval e e.index)((<MyZero> Const))())) e.Proc2>)
+            )
+        >;
 }
 
 /* После того как ЛДУ на длины уравнений решено, смотрим результат. */
@@ -1112,20 +1348,26 @@ GenerateCases {
     ((Case e.asg) e.OtherCases)(e.Eqs) = (Case (e.asg)(e.Eqs)('T'))<GenerateCases (e.OtherCases)(e.Eqs)>;
 }
 
-$ENTRY PreserveIfImplied {
-    t.Equation (e.GivenEqs),
-    <AddPRTCGenericEqs <ReplacePRTCNewEqs <GenerateFreshPRTC ()()> t.Equation> e.GivenEqs> : t.NewPRTC
+$ENTRY IfEqIsImplied {
+    t.Equation (e.GivenEqs)
+    , <AddPRTCGenericEqs <ReplacePRTCNewEqs <GenerateFreshPRTC ()()> t.Equation> e.GivenEqs> : t.NewPRTC
         = <CheckForNullNewEqs (t.Equation)
             <SolveEquations t.NewPRTC>
         >;
 }
 
 CheckForNullNewEqs {
-    (t.Equation) t.PRTC,
-    <GetPRTCNewEqs t.PRTC> : ,
-    <GetPRTCRestrs t.PRTC> : 
-            = t.Equation;
-    e.Z = ;
+    (t.Equation) t.PRTC
+    , <GetPRTCNewEqs t.PRTC> : /* EMPTY */
+    , <GetPRTCRestrs t.PRTC> : e.Restrictions
+    , t.Equation : (AreEqual (s.Log)(e.LHS)(e.RHS))
+    , (e.Restrictions)(e.LHS e.RHS) :
+        {(e.1 (assign t.par (e.data)) e.2)(e.3 t.par e.4)
+            = 'F';
+        e.Z
+            = 'T';
+        };
+    e.Z = 'F';
 }
 
 /* Для трассировщика. */

@@ -1,19 +1,20 @@
 /*
- Тест взят из статьи 2016 года на CAV:
+ The test is taken from the paper:
  M.T Trinh, D.H Chu, J. Jaffar, Progressive reasoning over recursively-defined strings /
  International Conference on Computer Aided Verification, 218-240
 
- Программа проверяет корректность следующей процедуры аудита.
- Дана строка. Заменяем в ней все символы '<' на '&lt', все символы '>' - на '&rt'.
- Процедура аудита считается корректной, если в результирующей строке не может появиться подстрока '<script'.
+ The program checks the consistency of the following sanitization procedure.
+ Given a string, we replace all the symbols '<' to the tag '&lt', and all the '>' to the tag '&rt'.
+ We say the sanitization is correct if the resulting string does not contain '<script'.
 
- Функции ReplaceBr1 и ReplaceBr2 осуществляют соответствующие замены. Функция Check проверяет, выполнена ли корректность.
+ The functions ReplaceBr1 and ReplaceBr2 model the sanitization. The function Check checks if it is correct.
+ The residual program does not contain functions returning 'F', 
+ hence the sanitization is proven to be correct in respect to the given condition.
 
- Остаточная программа после суперкомпиляции не содержит выходов, возвращающих 'F'.
 */
 
 /***********************************************/
-/*          исходная программа                 */
+/*           the input program                 */
 /***********************************************/
 
 $ENTRY Go {
@@ -21,73 +22,72 @@ $ENTRY Go {
 }
 
 ReplaceBr1 {
-    e.1 '<' e.2 = <ReplaceBr2 e.1'&lt'><ReplaceBr1 e.2>;
+    e.x1 '<' e.x2 = <ReplaceBr2 e.x1'&lt'><ReplaceBr1 e.x2>;
     e.Other = <ReplaceBr2 e.Other>;
 }
 
 ReplaceBr2 {
-    e.1 '>' e.2 =  e.1'&rt'<ReplaceBr2 e.2>;
+    e.x1 '>' e.x2 =  e.x1'&rt'<ReplaceBr2 e.x2>;
     e.Other = e.Other;
 }
 
 
 Check {
     = 'T';
-    '<script'e.2 = 'F';
-    t.1 e.Z = <Check e.Z>;
+    '<script'e.x2 = 'F';
+    t.y1 e.Z = <Check e.Z>;
 }
 
 
 /***********************************************/
-/*          остаточная программа               */
+/*          the residual program               */
 /***********************************************/
 
 /*
 $ENTRY Go {
- e.1 =  <Check_2 e.1>;
-}
-
-
-Check_2 {
- e.1 '<' e.2 =  <Check_1 (e.1) (e.2)>;
- e.1 =  <Check_3 e.1>;
+ e.x1 =  <Check_1 e.x1>;
 }
 
 
 Check_1 {
- ('>' e.1) (e.2) =  <Check_1 (e.1) (e.2)>;
- (e.1 t.1 '>' e.2) (e.3) =  <Check_3_1 (e.1) (t.1) (e.2) (e.3)>;
- (e.1) (e.2) =  <Check_3_2 (e.1) (e.2)>;
+ e.x1 '<' e.x2 =  <Check_0 (e.x1) (e.x2)>;
+ e.x1 =  <Check_2 e.x1>;
+}
+
+
+Check_3_0 {
+ (t.y1 e.x1) (e.x2) (e.x3) =  <Check_3_0 (e.x1) (e.x2) (e.x3)>;
+ () (e.x1) (e.x2) =  <Check_0 (e.x1) (e.x2)>;
+}
+
+
+Check_0 {
+ (e.x1 '>' e.x2) (e.x3) =  <Check_3_0 (e.x1) (e.x2) (e.x3)>;
+ (e.x1) (e.x2) =  <Check_3_1 (e.x1) (e.x2)>;
 }
 
 
 Check_3_1 {
- (t.1 e.1) (t.2) (e.2) (e.3) =  <Check_3_1 (e.1) (t.2) (e.2) (e.3)>;
- () (t.1) (e.1) (e.2) =  <Check_1 (e.1) (e.2)>;
+ (t.y1 e.x1) (e.x2) =  <Check_3_1 (e.x1) (e.x2)>;
+ () (e.x1) =  <Check_1 e.x1>;
 }
 
 
 Check_3_2 {
- (t.1 e.1) (e.2) =  <Check_3_2 (e.1) (e.2)>;
- () (e.1) =  <Check_2 e.1>;
+ (t.y1 e.x1) (e.x2) =  <Check_3_2 (e.x1) (e.x2)>;
+ () (e.x1) =  <Check_2 e.x1>;
 }
 
 
-Check_3_3 {
- (t.1 e.1) (e.2) =  <Check_3_3 (e.1) (e.2)>;
- () (e.1) =  <Check_3 e.1>;
-}
-
-
-Check_3 {
- e.1 '>' e.2 =  <Check_3_3 (e.1) (e.2)>;
- e.1 =  <Check_13_0 e.1>;
+Check_2 {
+ e.x1 '>' e.x2 =  <Check_3_2 (e.x1) (e.x2)>;
+ e.x1 =  <Check_13_0 e.x1>;
 }
 
 
 Check_13_0 {
  =  'T';
- t.1 e.1 =  <Check_13_0 e.1>;
+ t.y1 e.x1 =  <Check_13_0 e.x1>;
 }
 
 */

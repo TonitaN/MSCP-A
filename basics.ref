@@ -5,6 +5,8 @@
    
 *******************************************************************************************************/
 
+$EXTERN GetNodeName, GetNodeChildren,PutNodeChildren;
+
 
 /*******************************************************************************************************
    
@@ -22,8 +24,9 @@
 */
 
 $ENTRY IfASubMultiSet {
-	()(e.MS2) = 'T';
-	((t.power t.par) e.MS1)(e.MS2) = <LogAnd <IfIncluded (e.MS2)(t.power t.par)><IfASubMultiSet (e.MS1)(e.MS2)>>;
+    ()(e.MS2) = 'T';
+    ((t.power t.par) e.MS1)(e.MS2)
+        = <LogAnd <IfIncluded (e.MS2)(t.power t.par)><IfASubMultiSet (e.MS1)(e.MS2)>>;
 }
 
 /*
@@ -32,9 +35,9 @@ $ENTRY IfASubMultiSet {
 */
 
 $ENTRY IfIncluded {
-	()(t.power t.par) = 'F';
-	((t.power1 t.par) e.MS)(t.power t.par) = <MyIfNotLess t.power1 t.power>;
-	((t.power1 t.par1) e.MS)(t.power t.par) = <IfIncluded (e.MS)(t.power t.par)>;
+    ()(t.power t.par) = 'F';
+    ((t.power1 t.par) e.MS)(t.power t.par) = <MyIfNotLess t.power1 t.power>;
+    ((t.power1 t.par1) e.MS)(t.power t.par) = <IfIncluded (e.MS)(t.power t.par)>;
 }
 
 /*
@@ -44,9 +47,9 @@ $ENTRY IfIncluded {
 */
 
 $ENTRY CompareMultiSets {
-	()() = 'T';
-	(t.1 e.MS1 )(e.MS21 t.1 e.MS22) = <CompareMultiSets (e.MS1)(e.MS21 e.MS22)>;
-	(e.MS1)(e.MS2) = 'F';
+    ()() = 'T';
+    (t.1 e.MS1 )(e.MS21 t.1 e.MS22) = <CompareMultiSets (e.MS1)(e.MS21 e.MS22)>;
+    (e.MS1)(e.MS2) = 'F';
 }
 
 /*
@@ -56,8 +59,8 @@ $ENTRY CompareMultiSets {
 */
 
 $ENTRY SubtractSetFromSet {
-	t.1 (e.MS1 t.1 e.MS2) = (e.MS1 e.MS2)'T';
-	t.1 (e.MS) = (e.MS)'F'; 
+    t.1 (e.MS1 t.1 e.MS2) = (e.MS1 e.MS2)'T';
+    t.1 (e.MS) = (e.MS)'F'; 
 }
 
 /*
@@ -66,12 +69,12 @@ $ENTRY SubtractSetFromSet {
 */
 
 $ENTRY FindMSIntersection {
-	()(e.MS2) = ;
-	((t.power t.name) e.MS1)(e.MS21 (t.power1 t.name) e.MS22)
-            = 
-            (<MyMin t.power t.power1> t.name)
-            <FindMSIntersection (e.MS1)(e.MS21 e.MS22)>;
-	(t.1 e.MS1)(e.MS2) = <FindMSIntersection (e.MS1)(e.MS2)>;
+    ()(e.MS2) = ;
+    ((t.power t.name) e.MS1)(e.MS21 (t.power1 t.name) e.MS22)
+        = 
+        (<MyMin t.power t.power1> t.name)
+        <FindMSIntersection (e.MS1)(e.MS21 e.MS22)>;
+    (t.1 e.MS1)(e.MS2) = <FindMSIntersection (e.MS1)(e.MS2)>;
 }
 
 /*
@@ -80,8 +83,8 @@ $ENTRY FindMSIntersection {
 */
 
 $ENTRY SubtractMS {
-	(e.MS1)() = e.MS1;
-	(e.MS1)(t.1 e.MS2) = <SubtractMS (<SubtractEl t.1 (e.MS1)>)(e.MS2)>;
+    (e.MS1)() = e.MS1;
+    (e.MS1)(t.1 e.MS2) = <SubtractMS (<SubtractEl t.1 (e.MS1)>)(e.MS2)>;
 }
 
 /*
@@ -90,18 +93,18 @@ $ENTRY SubtractMS {
 */
 
 $ENTRY ReplaceMSEl {
-	(t.ElementName (e.ElMS))(e.MS1 (t.Power t.ElementName) e.MS2) 
-            = (<MergeSets (e.MS1 e.MS2)<MultiplyAllElements () t.Power (e.ElMS)>>);
-        t.EltoReplace (e.MS) = (e.MS);
+    (t.ElementName (e.ElMS))(e.MS1 (t.Power t.ElementName) e.MS2) 
+        = (<MergeSets (e.MS1 e.MS2)<MultiplyAllElements () t.Power (e.ElMS)>>);
+    t.EltoReplace (e.MS) = (e.MS);
 }
 
 MultiplyAllElements {
-        (e.Multiplied) t.Factor () = (e.Multiplied);
-        (e.Multiplied) t.Factor ((t.Power t.Name) e.NonMultiplied)
-            =
-            <MultiplyAllElements 
-                (e.Multiplied (<Mul t.Factor t.Power> t.Name)) t.Factor (e.NonMultiplied)
-            >;
+    (e.Multiplied) t.Factor () = (e.Multiplied);
+    (e.Multiplied) t.Factor ((t.Power t.Name) e.NonMultiplied)
+        =
+        <MultiplyAllElements 
+            (e.Multiplied (<Mul t.Factor t.Power> t.Name)) t.Factor (e.NonMultiplied)
+        >;
 }
 
 /*
@@ -110,16 +113,16 @@ MultiplyAllElements {
    Inf - бесконечная мощность
 */
 $ENTRY SubtractEl {
-	(t.Power t.Name)() = ; 
-	(t.Power t.Name)((t.Power t.Name)e.MS) = e.MS;
-	(t.Power t.Name)((t.Power2 t.Name)e.MS) = <DecElPow <MyIfNotLess t.Power2 t.Power> t.Power2 t.Power t.Name> e.MS;
-	(t.Power t.Name)((t.Power2 t.Name2)e.MS) = (t.Power2 t.Name2)<SubtractEl (t.Power t.Name)(e.MS)>;
+    (t.Power t.Name)() = ; 
+    (t.Power t.Name)((t.Power t.Name)e.MS) = e.MS;
+    (t.Power t.Name)((t.Power2 t.Name)e.MS) = <DecElPow <MyIfNotLess t.Power2 t.Power> t.Power2 t.Power t.Name> e.MS;
+    (t.Power t.Name)((t.Power2 t.Name2)e.MS) = (t.Power2 t.Name2)<SubtractEl (t.Power t.Name)(e.MS)>;
 }
 
 /* Вспомогательная функция для SubtractEl, чтобы не оставалось элементов вида (0 t.Name). */
 DecElPow {
-	'T't.Pow t.SPow t.Name = (<MySub t.Pow t.SPow> t.Name);
-	'F't.Pow t.SPow t.Name = ;
+    'T't.Pow t.SPow t.Name = (<MySub t.Pow t.SPow> t.Name);
+    'F't.Pow t.SPow t.Name = ;
 }
 
 /*
@@ -130,14 +133,15 @@ DecElPow {
 */
 
 $ENTRY InsertInMultiSet {
-	s.Mode (e.0 (t.Power t.1) e.1)(t.NewPower t.1) = e.0 (<MyAdd t.Power t.NewPower> t.1) e.1;
-	(e.0 (t.Power t.1) e.1)(t.NewPower t.1) = e.0 (<MyAdd t.Power t.NewPower> t.1) e.1;
-	(e.1) t.1 = e.1 t.1;
-        0 (e.1) t.1 = e.1 t.1;
-        1 (e.1) t.1, e.1:
-            {(t.Power Const) e.02 = (t.Power Const) t.1 e.02;
-                e.Z = t.1 e.Z;
-            };
+    s.Mode (e.0 (t.Power t.1) e.1)(t.NewPower t.1) = e.0 (<MyAdd t.Power t.NewPower> t.1) e.1;
+    (e.0 (t.Power t.1) e.1)(t.NewPower t.1) = e.0 (<MyAdd t.Power t.NewPower> t.1) e.1;
+    (e.1) t.1 = e.1 t.1;
+    0 (e.1) t.1 = e.1 t.1;
+    1 (e.1) t.1
+    , e.1:
+        {(t.Power Const) e.02 = (t.Power Const) t.1 e.02;
+        e.Z = t.1 e.Z;
+        };
 }
 
 /*
@@ -146,8 +150,8 @@ $ENTRY InsertInMultiSet {
 */
 
 $ENTRY MergeSets {
-()(e.2) = e.2;
-(t.1 e.1)(e.2) = <MergeSets (e.1)(<InsertInMultiSet (e.2) t.1>)>;
+    ()(e.2) = e.2;
+    (t.1 e.1)(e.2) = <MergeSets (e.1)(<InsertInMultiSet (e.2) t.1>)>;
 }
 
 /*
@@ -165,7 +169,9 @@ $ENTRY SymSubstMS {
    ([MS]) => MyNumber
 */
 $ENTRY MaxElementPowerMS {
-	(e.MS), <MaxElementMS (e.MS)>:(t.Power t.Name) = t.Power; 
+    (e.MS)
+    , <MaxElementMS (e.MS)>:(t.Power t.Name)
+        = t.Power; 
 }
 
 /*
@@ -175,8 +181,8 @@ $ENTRY MaxElementPowerMS {
 */
 
 $ENTRY MaxElementMS {
-	() = (<MyZero> AAA);
-	((t.Power t.Name) e.MS) = <MEMS1 'F' (t.Power t.Name) (t.Power t.Name) (e.MS)>;
+    () = (<MyZero> AAA);
+    ((t.Power t.Name) e.MS) = <MEMS1 'F' (t.Power t.Name) (t.Power t.Name) (e.MS)>;
 }
 
 $ENTRY RandomMaxElementMS {
@@ -200,19 +206,17 @@ ChooseRandomItem {
 
 /* Вспомогательная для MaxElementMS. */
 MEMS1 {
-	'F' t.Pred t.Curr () = t.Curr;
-	'T' t.Pred t.Curr () = t.Pred;
-	'F'(t.PowerPred t.NamePred) (t.PowerCurr t.NameCurr) ((t.PowerNext t.NameNext) e.MS)
-            = 
-            <MEMS1 <MyIfNotLess t.PowerCurr t.PowerNext> (t.PowerCurr t.NameCurr) (t.PowerNext t.NameNext) (e.MS)>;
-	'T'(t.PowerPred t.NamePred) (t.PowerCurr t.NameCurr) ((t.PowerNext t.NameNext) e.MS)
-            = 
-            <MEMS1 <MyIfNotLess t.PowerPred t.PowerNext> (t.PowerPred t.NamePred) (t.PowerNext t.NameNext) (e.MS)>;
+    'F' t.Pred t.Curr () = t.Curr;
+    'T' t.Pred t.Curr () = t.Pred;
+    'F'(t.PowerPred t.NamePred) (t.PowerCurr t.NameCurr) ((t.PowerNext t.NameNext) e.MS)
+        = <MEMS1 <MyIfNotLess t.PowerCurr t.PowerNext> (t.PowerCurr t.NameCurr) (t.PowerNext t.NameNext) (e.MS)>;
+    'T'(t.PowerPred t.NamePred) (t.PowerCurr t.NameCurr) ((t.PowerNext t.NameNext) e.MS)
+        = <MEMS1 <MyIfNotLess t.PowerPred t.PowerNext> (t.PowerPred t.NamePred) (t.PowerNext t.NameNext) (e.MS)>;
 }
 
 /* Функция доступа, извлекающая имя элемента мультимножества. */
 $ENTRY ExtractElNameMS {
-	(t.Power t.Name) = t.Name;
+    (t.Power t.Name) = t.Name;
 }
 
 CountItems {
@@ -265,7 +269,9 @@ $ENTRY RestoreIndices {
 */
 
 $ENTRY FreshIndex {
-    e.Index, <Dg e.Index> : s.Val = <Add s.Val 1><Br e.Index'=' <Add s.Val 1>>;
+    e.Index
+    , <Dg e.Index> : s.Val
+        = <Add s.Val 1><Br e.Index'=' <Add s.Val 1>>;
 }
 
 /*
@@ -274,7 +280,9 @@ $ENTRY FreshIndex {
 */
 
 $ENTRY CurrentIndex {
-    e.Index, <Dg e.Index>:s.Val =  s.Val <Br e.Index'='s.Val>;
+    e.Index
+    , <Dg e.Index> : s.Val
+        =  s.Val <Br e.Index'='s.Val>;
 }
 
 /*
@@ -305,6 +313,13 @@ SInt {
 }
 
 /* Разность двух множеств (как множеств, а не мультимножеств!). */
+$ENTRY SubSetRel {
+    (e.1)() = 'T';
+    (e.1 t.1 e.2)(t.1 e.3) = <SubSetRel (e.1 e.2)(e.3)>;
+    (e.1)(t.1 e.2) = 'F';
+}
+
+/* Разность двух множеств (как множеств, а не мультимножеств!). */
 $ENTRY SetMinus {
     (e.1)() = (e.1);
     (e.1 t.1 e.2)(t.1 e.3) = <SetMinus (e.1 e.2)(e.3)>;
@@ -316,44 +331,44 @@ $ENTRY SetMinus {
    [Term]([Term]^*) =>([Term]^+)
 */
 $ENTRY SetInsert {
-	t.x (e.1 t.x e.2) = (e.1 t.x e.2);
-	t.x (e.Z) = (e.Z t.x);
+    t.x (e.1 t.x e.2) = (e.1 t.x e.2);
+    t.x (e.Z) = (e.Z t.x);
 }
 
 /* Коньюнкция на {'T','F'} !LAZY! {'T','N','F'}(3-значн Лукас). */
 $ENTRY LogAnd {
-	'F's.1 = 'F';
-	s.1'F' = 'F';
-	'N's.1 = 'N';
-	s.1'N' = 'N';
-	'D's.1 = 'D';
-	s.1'D' = 'D';
-        'TT' = 'T';
+    'F's.1 = 'F';
+    s.1'F' = 'F';
+    'N's.1 = 'N';
+    s.1'N' = 'N';
+    'D's.1 = 'D';
+    s.1'D' = 'D';
+    'TT' = 'T';
 }
 
 /* Конъюнкция. */
 $ENTRY LogAndMerge {
-	(e.1)'F' (e.2)s.2 = ()'F';
-	(e.1)s.1 (e.2)'F' = ()'F';
-	()s.1 (e.2)s.2 = (e.2)<LogAnd s.1 s.2>;
-	(e.1)s.1 (e.2)s.2 = (e.1)<LogAnd s.1 s.2>;
+    (e.1)'F' (e.2)s.2 = ()'F';
+    (e.1)s.1 (e.2)'F' = ()'F';
+    ()s.1 (e.2)s.2 = (e.2)<LogAnd s.1 s.2>;
+    (e.1)s.1 (e.2)s.2 = (e.1)<LogAnd s.1 s.2>;
 }
 	
 $ENTRY LogOrMerge {
-	()s.1 (e.2)s.2 = (e.2)<LogOr s.1 s.2>;
-	(e.1)s.1 (e.2)s.2 = (e.1)<LogOr s.1 s.2>;
+    ()s.1 (e.2)s.2 = (e.2)<LogOr s.1 s.2>;
+    (e.1)s.1 (e.2)s.2 = (e.1)<LogOr s.1 s.2>;
 }
 /* Дизъюнкция на {'T','F'} !LAZY! {'T','N','F'}(3-значн Лукас). */
 $ENTRY LogOr {
-        s.1'S'  = 'S';
-        'S's.1  = 'S';
-	s.1'T'  = 'T';
-	'T's.1  = 'T';
-	s.1'D'  = 'D';
-	'D's.1  = 'D';
-        s.1'N'  = 'N';
-	'N's.1  = 'N';
-	'FF' = 'F';
+    s.1'S'  = 'S';
+    'S's.1  = 'S';
+    s.1'T'  = 'T';
+    'T's.1  = 'T';
+    s.1'D'  = 'D';
+    'D's.1  = 'D';
+    s.1'N'  = 'N';
+    'N's.1  = 'N';
+    'FF' = 'F';
 }
 
 /*
@@ -391,10 +406,13 @@ $ENTRY MyZero {
 */
 
 $ENTRY MyMax {
-	s.1 Inf = Inf;
-	Inf s.2 = Inf;
-	s.1 s.2, <Compare s.1 s.2>:'+' = s.1;
-	s.1 s.2 = s.2;
+    e.1 Nil e.2 = e.1 e.2; 
+    s.1 Inf = Inf;
+    Inf s.2 = Inf;
+    s.1 s.2
+    , <Compare s.1 s.2>:'+'
+        = s.1;
+    s.1 s.2 = s.2;
 }
 
 /*
@@ -404,10 +422,12 @@ $ENTRY MyMax {
 */
 
 $ENTRY MyMin {
-	s.1 Inf = s.1;
-	Inf s.2 = s.2;
-	s.1 s.2, <Compare s.1 s.2>:'+' = s.2;
-	s.1 s.2 = s.1;
+    s.1 Inf = s.1;
+    Inf s.2 = s.2;
+    s.1 s.2
+        , <Compare s.1 s.2>:'+'
+        = s.2;
+    s.1 s.2 = s.1;
 }
 
 /*
@@ -417,9 +437,11 @@ $ENTRY MyMin {
 */
 
 $ENTRY MyAdd {
-	s.1 Inf = Inf;
-	Inf s.2 = Inf;
-	s.1 s.2 = <Add s.1 s.2>;
+    s.1 Inf = Inf;
+    Inf s.2 = Inf;
+    s.1 Null = Null;
+    Null s.1 = Null;
+    s.1 s.2 = <Add s.1 s.2>;
 }
 
 /*
@@ -430,11 +452,13 @@ $ENTRY MyAdd {
 
 $ENTRY MySub {
 /* ! Случай ниже никогда не должен встречаться при применении функции. */
-	Inf Inf = <Recogn_Impossible>;
-	Inf s.2 = Inf;
-	s.1 Inf = 0;
-	s.1 s.2, <MyIfNotLess s.1 s.2>:'T' = <Sub s.1 s.2>;
-	s.1 s.2 = 0;
+    Inf Inf = <Recogn_Impossible>;
+    Inf s.2 = Inf;
+    s.1 Inf = 0;
+    s.1 s.2
+    , <MyIfNotLess s.1 s.2>:'T'
+        = <Sub s.1 s.2>;
+    s.1 s.2 = 0;
 }
 
 /*
@@ -444,23 +468,24 @@ $ENTRY MySub {
 */
 
 $ENTRY MyIfNotLess {
-        Inf s.2 = 'T';
-	s.1 s.1 = 'T';
-	s.1 Inf = 'F';
-	s.1 s.2, <Type s.1> : 'N'e.other,
-        <Type s.2> : 'N'e.other2 
-            = <MytoBool <Compare s.1 s.2>>;
-	'-'s.1 s.2 = 'F';
-	'-'s.1 '-'s.1 = 'T';
-	'-'s.1 '-'s.2 = <MytoBool <Compare '-'s.1 '-'s.2>>;
-        t.1 t.2 = 'F';
+    Inf s.2 = 'T';
+    s.1 s.1 = 'T';
+    s.1 Inf = 'F';
+    s.1 s.2
+    , <Type s.1> : 'N'e.other
+    , <Type s.2> : 'N'e.other2 
+        = <MytoBool <Compare s.1 s.2>>;
+    '-'s.1 s.2 = 'F';
+    '-'s.1 '-'s.1 = 'T';
+    '-'s.1 '-'s.2 = <MytoBool <Compare '-'s.1 '-'s.2>>;
+    t.1 t.2 = 'F';
 }
 
 /* Перевод результата сравнения в булево значение. */
 $ENTRY MytoBool {
-	'+' = 'T';
-	0 = 'F';
-	'-' = 'F';
+    '+' = 'T';
+    0 = 'F';
+    '-' = 'F';
 }
 
 /*----------------------------------------------------------------------------------------------------------*/
@@ -474,21 +499,26 @@ $ENTRY MytoBool {
 */
 
 $ENTRY FindTerm {
-	t.name e.X t.name e.Y = 'T';
-        t.name ('*' e.1) e.2 = <FindTerm t.name e.1 e.2>;
-	t.name e.Z = 'F';
+    t.name e.X t.name e.Y = 'T';
+    t.name e.0 ('*' e.1) e.2 = <FindTerm t.name e.0 e.1 e.2>;
+    t.name e.0 (call t.fname (args e.call)) e.2 = <FindTerm t.name e.0 e.call e.2>;
+    t.name e.0 (assign t.term (e.1)) e.2 = <FindTerm t.name e.0 e.1 e.2>;
+    t.name e.0 (AreEqual e.Log(e.LHS)(e.RHS)) e.2 = <FindTerm t.name e.0 e.LHS e.RHS e.2>;
+    t.name e.0 ((e.expr) to (e.pat)) e.1 = <FindTerm t.name e.0 e.expr e.pat e.1>;
+    t.name e.0 (OR (s.Log)e.Z) e.1 = <FindTerm t.name e.0 e.Z e.1>;
+    t.name e.Z = 'F';
 }
 
 $ENTRY GetParList {
     (e.Parameters) = e.Parameters;
-    (e.Parameters) ('*' e.1) e.2,
-    <GetParList (e.Parameters) e.1> : e.NewPars 
+    (e.Parameters) ('*' e.1) e.2
+    , <GetParList (e.Parameters) e.1> : e.NewPars 
         = <GetParList (e.NewPars) e.2>;
-    (e.Parameters) (call t.fname (args (arg e.1))) e.2,
-    <GetParList (e.Parameters) e.1> : e.NewPars 
+    (e.Parameters) (call t.fname (args (arg e.1))) e.2
+    , <GetParList (e.Parameters) e.1> : e.NewPars 
         = <GetParList (e.NewPars) e.2>;
-    (e.Parameters) (par e.par) e.2,
-        <FindTerm (par e.par)e.Parameters> :
+    (e.Parameters) (par e.par) e.2
+    , <FindTerm (par e.par)e.Parameters> :
         {'T'
             = <GetParList (e.Parameters)e.2>;
         'F' = <GetParList (e.Parameters (par e.par))e.2>;
@@ -546,19 +576,18 @@ $ENTRY Substitute {
 */
 
     () e.Expr = e.Expr;
-    (e.Subst) 
-        (AreEqual (s.Log)t.MS1(e.LHS)t.MS2(e.RHS)) e.Expr,
-        <UpdateMultisets ()()(e.Subst)t.MS1 t.MS2> : (e.Sub1)(e.Sub2)t.LMS t.RMS,
-        <Br 'Changes=F'> : e.1,
-        <SubstituteAux (e.Subst)e.LHS> : e.NewLHS,
-        <SubstituteAux (e.Subst)e.RHS> : e.NewRHS
-            =   (AreEqual (<LogOr s.Log <Cp 'Changes'>>)t.LMS (e.NewLHS)t.RMS (e.NewRHS))
-                <Substitute (e.Subst)e.Expr>;
+    (e.Subst) (AreEqual (s.Log)t.MS1(e.LHS)t.MS2(e.RHS)) e.Expr
+    , <UpdateMultisets ()()(e.Subst)t.MS1 t.MS2> : (e.Sub1)(e.Sub2)t.LMS t.RMS
+    , <Br 'Changes=F'> : e.1
+    , <SubstituteAux (e.Subst)e.LHS> : e.NewLHS
+    , <SubstituteAux (e.Subst)e.RHS> : e.NewRHS
+        = (AreEqual (<LogOr s.Log <Cp 'Changes'>>)t.LMS (e.NewLHS)t.RMS (e.NewRHS))
+        <Substitute (e.Subst)e.Expr>;
 /* 2. Подстановка в уравнения без мультимножеств переменных. */
-    (e.Subst) (AreEqual (s.Log)(e.LHS)(e.RHS)) e.Expr,
-    <Br 'Changes=F'> : e.1,
-    <SubstituteAux (e.Subst)e.LHS> : e.NewLHS,
-    <SubstituteAux (e.Subst)e.RHS> : e.NewRHS
+    (e.Subst) (AreEqual (s.Log)(e.LHS)(e.RHS)) e.Expr
+    , <Br 'Changes=F'> : e.1
+    , <SubstituteAux (e.Subst)e.LHS> : e.NewLHS
+    , <SubstituteAux (e.Subst)e.RHS> : e.NewRHS
         = (AreEqual (<LogOr s.Log <Cp 'Changes'>>)(e.NewLHS)(e.NewRHS))<Substitute (e.Subst)e.Expr>;
 /* 3. Все прочие случаи. */
     (e.Subst) e.Expr = <UpdateChanges 'F'><SubstituteAux (e.Subst) e.Expr>;		
@@ -587,9 +616,9 @@ SubstituteAux {
 /* 2. Обработка константы */
     (e.Subst) s.1 e.Expr = s.1 <SubstituteAux (e.Subst) e.Expr>;
 /* 3. Обработка скобок. Флаг изменений от подстановки внутрь скобок не изменяется! */
-    (e.Subst) ('*' e.InBr) e.OutBr,
-    <Cp 'Changes'> : s.Log,
-    <SubstituteAux (e.Subst) e.InBr> : e.InBrNew
+    (e.Subst) ('*' e.InBr) e.OutBr
+    , <Cp 'Changes'> : s.Log
+    , <SubstituteAux (e.Subst) e.InBr> : e.InBrNew
         = 
         <UpdateChanges s.Log> ('*' e.InBrNew) <SubstituteAux (e.Subst) e.OutBr>;
 /*
@@ -597,9 +626,9 @@ SubstituteAux {
    до временных меток, и если да, то подставляем. 
 */
 
-    (e.Subst)(call e.call2) e.Expr,
-    e.Subst : (assign (call e.call1)(e.ToSubstitute)), 
-    <ComplexCompareCalls ((call e.call1))((call e.call2))> : 'T' 
+    (e.Subst)(call e.call2) e.Expr
+    , e.Subst : (assign (call e.call1)(e.ToSubstitute))
+    , <ComplexCompareCalls ((call e.call1))((call e.call2))> : 'T' 
         = 
         e.ToSubstitute <SubstituteAux (e.Subst) e.Expr>;
 /*
@@ -607,9 +636,9 @@ SubstituteAux {
    Вариант лишь для одноместных функций. Флаг изменений от подстановки в аргумент вызова не изменяется! 
 */
 
-    (e.Subst) (call e.functionname (args (arg e.arg)))e.Expr,
-    <Cp 'Changes'> : s.Log,
-    <SubstituteAux (e.Subst)e.arg> : e.NewArg  
+    (e.Subst) (call e.functionname (args (arg e.arg)))e.Expr
+    , <Cp 'Changes'> : s.Log
+    , <SubstituteAux (e.Subst)e.arg> : e.NewArg  
         = (call e.functionname (args (arg e.NewArg))) 
         <UpdateChanges s.Log><SubstituteAux (e.Subst) e.Expr>;
 /*
@@ -645,8 +674,16 @@ SubstituteAux {
 */
 $ENTRY IterateSubstitute {
     (e.subs) e.Val = <IterateSubstitute Started (e.Val)(e.subs)(<Substitute (e.subs) e.Val>)>;
-    Started t.Val(e.subs)t.Val, t.Val : (e.Val) = e.Val;  
+    Started t.Val(e.subs)t.Val
+    , t.Val : (e.Val)
+        = e.Val;  
     Started (e.1)(e.subs)(e.2) = <IterateSubstitute Started (e.2)(e.subs)(<Substitute (e.subs) e.2>)>;
+}
+
+$ENTRY SubstInversion {
+     = ;
+    (assign t.par (t.toSub)) e.Subs
+        = (assign t.toSub (t.par)) <SubstInversion e.Subs >;
 }
 
 /*
@@ -668,7 +705,9 @@ SubstituteWithCount {
 }
 
 UpdateChanges {
-    s.x, <Dg 'Changes'> : s.y = <Br 'Changes='<LogOr s.x s.y>>;
+    s.x
+    , <Dg 'Changes'> : s.y
+        = <Br 'Changes='<LogOr s.x s.y>>;
     s.x = <Br 'Changes='s.x>;
 }
 
@@ -677,8 +716,8 @@ UpdateChanges {
    ((assign (Var/Par/Weval s.Type t.Name) (e.Val))^*) (Var/Par/Weval s.Type  t.Name) => e.Val 
 */
 $ENTRY FindVariableValue {
-	(e.SubsFirst (assign t.NameAndTypeInfo (e.value))e.SubsRest) t.NameAndTypeInfo = e.value;
-	(e.Subs) t.NameAndTypeInfo = t.NameAndTypeInfo;
+    (e.SubsFirst (assign t.NameAndTypeInfo (e.value))e.SubsRest) t.NameAndTypeInfo = e.value;
+    (e.Subs) t.NameAndTypeInfo = t.NameAndTypeInfo;
 }
 
 /* Дано назначение вида --- переменная равна терму плюс еще чему-то. Проверить, не содержит ли оно явного противоречия. */
@@ -699,8 +738,8 @@ $ENTRY CompareCalls {
 $ENTRY ComplexCompareCalls {
     t.1 t.1 = 'T';
     (t.1 e.1)(t.1 e.2) = <ComplexCompareCalls (e.1)(e.2)>;
-    ((call t.fname1 (args (arg e.Arg1))) e.1)((call t.fname2 (args (arg e.Arg2))) e.2),
-    <CompareCalls t.fname1 t.fname2> : 'T'
+    ((call t.fname1 (args (arg e.Arg1))) e.1)((call t.fname2 (args (arg e.Arg2))) e.2)
+    , <CompareCalls t.fname1 t.fname2> : 'T'
         = 
         <LogAnd 
             <ComplexCompareCalls (e.Arg1)(e.Arg2)>
@@ -723,13 +762,82 @@ $ENTRY ComplexCompareCalls {
 */
 $ENTRY FindNode {
 /* 1. Весь путь сверху вниз пройден, вершина найдена. */
-	(t.NodeName)(Node t.Status t.NodeName e.Config) e.OtherNodes = (Node t.Status t.NodeName e.Config);
+    (t.NodeName)t.Node e.OtherNodes
+    , <GetNodeName t.Node> : t.NodeName 
+        = t.Node;
 /* 2. Переход к очередному (более близкому) предку вершины. */
-	(t.NodeName e.NextAncestors) (Node t.Status t.NodeName e.Config (Children e.Children)) e.OtherNodes
+    (t.NodeName e.NextAncestors) t.Node e.OtherNodes
+    , <GetNodeName t.Node> : t.NodeName
+    , <GetNodeChildren t.Node> : e.Children
             = <FindNode (e.NextAncestors) e.Children>;
 /* 3. Вершины, являющиеся сиблингами предков, отбрасываются. */
 	(e.Ancestors) (Node e.Data) e.OtherNodes
             = <FindNode (e.Ancestors) e.OtherNodes>;
+}
+
+
+/*
+    Удаление вершины из дерева по ее пути.
+   [path][tree]^+ =>[tree]
+   [path]::=([nodename]+) (порядок - от корня к вершине, путь до которой указан).
+   [tree]::=(Node [NodeStatus] [NodeName] (([restriction]^*|Always|Push) ([equation]^*)([LetExpressions]^*)([FullConfiguration])([Stack]))
+   (Children [tree]^*))
+*/
+$ENTRY DeleteNode {
+/* 1. От пути осталось просто имя вершины - мы на нужном уровне в дереве, удаляем ее. */
+    (t.NodeName) t.Node e.NodesAfter
+    , <GetNodeName t.Node> : 
+        { t.NodeName
+            = e.NodesAfter;
+        t.OtherNodeName 
+            = t.Node <DeleteNode (t.NodeName) e.NodesAfter>;
+        };
+/* 2. На каждом новом этапе ищем предка удаляемой вершины, оставляем всех его соседей как есть, и переходим к его потомкам. */
+    (t.AncestorNodeName e.NextAncestors) t.OlderNode e.NodesAfter
+    , <GetNodeName t.OlderNode> :
+        {t.AncestorNodeName
+        , <GetNodeChildren t.OlderNode> : e.Children
+        , <DeleteNode (e.NextAncestors) e.Children> : e.NewChildren
+            = <PutNodeChildren t.OlderNode e.NewChildren> e.NodesAfter;
+	t.OtherNodeName
+            = t.OlderNode <DeleteNode (t.AncestorNodeName e.NextAncestors) e.NodesAfter>;
+        };
+}
+
+/*
+    Вставка вершины с обновленными данными в дерево.
+   [NewNode][path][Tree]^+ =>[tree]
+   [path] - позиция, на которую вставляется [NewNode]. Считаем, что она в дереве [Tree] всегда существует. 
+*/
+$ENTRY InsertNode {
+/* 1. От пути осталось просто имя вершины - мы на нужном уровне в дереве, вставляем новые данные. */
+	(t.NodeClass e.NewConf)(t.NodeName) e.NodesBefore(t.NodeClass t.Status t.NodeName e.Config) e.NodesAfter 
+            = e.NodesBefore (t.NodeClass e.NewConf) e.NodesAfter;
+/* 2. На каждом новом этапе ищем предка изменяемой вершины, оставляем всех его соседей как есть, и переходим к его потомкам. */
+	(t.NodeClass e.NewConf)
+	(t.AncestorNodeName e.NextAncestors) 
+	e.NodesBefore(t.NodeClass t.Status t.AncestorNodeName e.Config (Children e.Children)) e.NodesAfter
+            = 
+            e.NodesBefore 
+            (t.NodeClass t.Status t.AncestorNodeName e.Config (Children <InsertNode (t.NodeClass e.NewConf)(e.NextAncestors) e.Children>)) 
+            e.NodesAfter;
+}
+
+$ENTRY ReplaceNode {
+    t.Tree t.Node t.NewNode
+    , <GenPath <GetNodeName t.Node>> : e.Path
+        = <InsertNode t.NewNode (e.Path) t.Tree>;
+}
+
+$ENTRY GetNodeParent {
+    t.Node t.Tree
+    , <GetNodeName t.Node> : t.NodeName
+    , <GenPath t.NodeName> : 
+    {e.Path t.NotLast t.Last
+        = <FindNode (e.Path t.NotLast) t.Tree>;
+    e.Other
+        = /* EMPTY */;
+    };
 }
 
 /*
@@ -738,8 +846,8 @@ $ENTRY FindNode {
 */
 
 $ENTRY GenPath {
-	() = ;
-	(e.Parent s.ChildNum) = <GenPath (e.Parent)>(e.Parent s.ChildNum);
+    (/* EMPTY */) = ;
+    (e.Parent s.ChildNum) = <GenPath (e.Parent)>(e.Parent s.ChildNum);
 }
 
 Recogn_Impossible {
@@ -822,11 +930,33 @@ $ENTRY IsTerm {
 */
 
 $ENTRY IfGround {
-	= 'T';
-	s.1 e.1 = <IfGround e.1>;
-        (par e.data) e.1 = <IfGround e.1>;
-	('*' e.1) e.2 = <LogAnd <IfGround e.1><IfGround e.2>>;
-	e.Z = 'F';
+    /* EMPTY */ = 'T';
+    s.1 e.1 = <IfGround e.1>;
+    (par e.data) e.1 = <IfGround e.1>;
+    ('*' e.1) e.2 = <LogAnd <IfGround e.1><IfGround e.2>>;
+    e.Z = 'F';
+}
+
+$ENTRY IfBounded {
+    /* EMPTY */ = 'T';
+    s.1 e.1 = <IfBounded e.1>;
+    (par t e.data) e.1 = <IfBounded e.1>;
+    (par s e.data) e.1 = <IfBounded e.1>;
+    ('*' e.1) e.2 = <LogAnd <IfBounded e.1><IfBounded e.2>>;
+    e.Z = 'F';
+}
+
+$ENTRY IfConstant {
+    /* EMPTY */ = 'T';
+    s.1 e.1 = <IfConstant e.1>;
+    ('*' e.1) e.2 = <LogAnd <IfConstant e.1><IfConstant e.2>>;
+    e.Z = 'F';
+}
+
+$ENTRY CountLength {
+    t.1 = 1;
+    t.1 e.x = <Add 1 <CountLength e.x>>;
+     = 0;
 }
 
 $ENTRY Map {

@@ -1,0 +1,81 @@
+/*
+ The classical test on transforming the naive substring search algorithm to the KMP-algorithm by supercompilation.
+ The naive substring search function is modeled by SS1.
+ The string to be searched is fixed in the initial call of Match.
+ The resulting program contains four loops, as the corresponding finite automaton, and never retracts on the string.
+*/
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+   (e.x)e.y = <Match ('AAABAAAABB') e.y>;
+}
+
+Match {
+	(e.x)e.y = <SS1 (e.x)(e.y)(e.x)(e.y)>;
+}
+
+SS1 {
+   (s.x e.y1)(s.x e.y2)(e.y3)(e.y4) = <SS1 (e.y1)(e.y2)(e.y3)(e.y4)>; 
+   ( )(e.y2)(e.y3)(e.y4) = True;
+   (e.y1)(s.x e.y2)(e.y3)(s.y e.y4) = <SS1 (e.y3)(e.y4)(e.y3)(e.y4)>; 
+   (e.y1)( )(e.y3)(s.z e.y4) = <SS1 (e.y3)(e.y4)(e.y3)(e.y4)>; 
+   (e.y1)(e.y2)(e.y3)( ) = False; 
+
+}
+
+/*********************************************************************************/
+/*                     the residual program                                      */
+/*********************************************************************************/
+/*
+$ENTRY Go {
+ (e.x1) e.x2 =  <SS1_135_0 e.x2>;
+}
+
+
+SS1_135_0 {
+ 'AAA' e.x1 =  <SS1_134_1 e.x1>;
+ 'AA' s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ 'AA' =  False;
+ 'A' s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ 'A' =  False;
+ s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ =  False;
+}
+
+
+SS1_134_0 {
+ 'AAABB' e.x1 =  True;
+ 'AAABA' e.x1 =  <SS1_134_0 e.x1>;
+ 'AAAB' s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ 'AAAB' =  False;
+ 'AAAA' e.x1 =  <SS1_134_1 e.x1>;
+ 'AAA' s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ 'AAA' =  False;
+ 'AAB' e.x1 =  <SS1_134_2 e.x1>;
+ 'AA' s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ 'AA' =  False;
+ 'A' s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ 'A' =  False;
+ s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ =  False;
+}
+
+
+SS1_134_1 {
+ 'B' e.x1 =  <SS1_134_2 e.x1>;
+ 'A' e.x1 =  <SS1_134_1 e.x1>;
+ s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ =  False;
+}
+
+
+SS1_134_2 {
+ 'A' e.x1 =  <SS1_134_0 e.x1>;
+ s.z1 e.x1 =  <SS1_135_0 e.x1>;
+ =  False;
+}
+
+*/

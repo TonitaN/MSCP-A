@@ -1,0 +1,38 @@
+/*
+  Given a function F1, it has the two accumulators: one stores the letters 'b' prepending them,
+  and other stores the letters appending then.
+  Prove that the two accumulators are always equal.
+*/
+
+/***********************************************/
+/*           the input program                 */
+/***********************************************/
+
+$ENTRY Go {
+  e.X = <F1 (e.X) ( )( )>;
+}
+
+F1 {
+    ()(e.y)(e.z) = <F2 (e.y)(e.z)>;
+    ('a'e.x)(e.y)(e.z) = <F1 (e.x)('b'e.y)(e.z'b')>;
+}
+
+F2 {
+    (e.x)(e.x) = True;
+    (e.x)(e.y) = False;
+}
+
+/***********************************************/
+/*          the residual program               */
+/***********************************************/
+/*
+ $ENTRY Go {
+  e.x1 =  <F1_12_0 (e.x1) ()>;
+ }
+
+
+ F1_12_0 {
+  () (e.x1) =  True;
+  ('a' e.x1) (e.x2) =  <F1_12_0 (e.x1) (e.x2 'b')>;
+ }
+*/
