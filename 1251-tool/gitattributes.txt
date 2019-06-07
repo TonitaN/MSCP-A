@@ -1,0 +1,6 @@
+*._bat filter=in1251
+*.bat filter=in1251
+*.html filter=in1251
+*.md filter=in1251
+*.ref filter=in1251
+*.txt filter=in1251
