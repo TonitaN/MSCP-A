@@ -1,0 +1,4 @@
+*.rsl
+!prefal.rsl
+!c-prefal.rsl
+rsd_*.ref
